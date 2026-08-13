@@ -14,6 +14,9 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <!-- html2canvas (리포트 이미지 저장용) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- Firebase (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <!-- Google Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Jua&family=Gaegu:wght@400;700&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
@@ -83,11 +86,40 @@
 <div id="root"></div>
 
 <script type="text/babel">
-const { useState, useMemo, useRef } = React;
+const { useState, useMemo, useRef, useEffect } = React;
+
+/* ════════════════════════════════════════════════
+   🔥 Firebase 설정
+   Firebase 콘솔 → 프로젝트 설정 → 내 앱(웹) → SDK 설정/구성에서
+   복사한 값을 아래에 붙여넣으세요. (projectId 등)
+   ════════════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey:            "여기에_붙여넣기",
+  authDomain:        "여기에_붙여넣기",
+  projectId:         "여기에_붙여넣기",
+  storageBucket:     "여기에_붙여넣기",
+  messagingSenderId: "여기에_붙여넣기",
+  appId:             "여기에_붙여넣기",
+};
+const DB_COLLECTION = "jht";   // 컬렉션 이름 (원하면 변경)
+const DB_DOC        = "data";  // 문서 이름 (원하면 변경)
+
+// Firestore 보안 규칙 예시 (콘솔 → Firestore → 규칙)
+const FIRESTORE_RULES =
+`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /${DB_COLLECTION}/{doc} {
+      allow read: if true;
+      allow write: if true;   // ⚠️ 시작용. 운영 시 Auth로 제한 권장
+    }
+  }
+}`;
+
+const isConfigured = () => firebaseConfig.projectId && firebaseConfig.projectId !== "여기에_붙여넣기";
 
 /* ────────────────────────────────────────────────
-   초기 데이터 (index.html 안에 직접 보관)
-   → 선생님이 [데이터] 탭에서 수정 후 export 하여 GitHub에 커밋
+   초기(시드) 데이터 — Firestore가 비어 있을 때 한 번 생성용
    ──────────────────────────────────────────────── */
 const initialAppData = {
   brandName: "정훈T 과학",
@@ -770,29 +802,27 @@ function ScheduleManager({ data, setData, classId }){
   );
 }
 
-/* ── 데이터 (저장/배포) ── */
+/* ── 데이터 · 설정 ── */
 function DataManager({ data, setData }){
   const [importText, setImportText] = useState("");
   const jsonStr = JSON.stringify(data, null, 2);
+
+  const setField = (k,v) => setData(prev=>{ const d=clone(prev); d[k]=v; return d; });
 
   const download = () => {
     const blob = new Blob([jsonStr], {type:"application/json"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href=url; a.download="data.json"; a.click();
+    a.href=url; a.download="backup.json"; a.click();
     URL.revokeObjectURL(url);
-  };
-  const copySnippet = () => {
-    const snippet = "const initialAppData = " + jsonStr + ";";
-    navigator.clipboard.writeText(snippet).then(()=>alert("initialAppData 코드가 복사되었어요!\n\nindex.html 안의 initialAppData 부분을 통째로 이 내용으로 교체하고 GitHub에 커밋하세요."));
   };
   const doImport = () => {
     try{
       const parsed = JSON.parse(importText);
       if(!parsed.classes) throw new Error();
-      setData(parsed);
+      setData(parsed);           // Firestore에 자동 저장됨
       setImportText("");
-      alert("불러오기 완료!");
+      alert("불러오기 완료! (자동 저장됨)");
     }catch(e){ alert("JSON 형식이 올바르지 않아요."); }
   };
   const onFile = (e) => {
@@ -805,31 +835,45 @@ function DataManager({ data, setData }){
   return (
     <div className="space-y-5">
       <div className="bg-sprout-soft border border-sprout-ring rounded-2xl p-4 text-sm text-sprout-deep leading-relaxed">
-        📌 이 페이지에서 수정한 내용은 <b>현재 화면에만</b> 반영됩니다.<br/>
-        영구 저장하려면 아래 <b>[data.json 내려받기]</b> 또는 <b>[initialAppData 복사]</b> 후 GitHub에 반영해 주세요.
+        ☁️ 이제 수정하는 즉시 <b>자동으로 저장</b>되고 학부모 화면에도 반영됩니다.<br/>
+        GitHub 커밋이나 복사는 더 이상 필요 없어요.
       </div>
 
-      <div className="bg-white rounded-2xl border border-line p-5">
-        <p className="font-jua text-lg text-ink mb-3">1. 저장 · 배포</p>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={download} className="px-4 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">⬇️ data.json 내려받기</button>
-          <button onClick={copySnippet} className="px-4 py-2.5 rounded-xl bg-ink text-white font-bold hover:opacity-90 transition">📋 initialAppData 복사</button>
+      {/* 사이트 설정 */}
+      <div className="bg-white rounded-2xl border border-line p-5 space-y-3">
+        <p className="font-jua text-lg text-ink">사이트 설정</p>
+        <div>
+          <label className="text-xs text-muted font-bold">사이트 이름</label>
+          <input value={data.brandName} onChange={e=>setField("brandName",e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="text-xs text-muted font-bold">한 줄 소개</label>
+          <input value={data.tagline} onChange={e=>setField("tagline",e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="text-xs text-muted font-bold">관리자 비밀번호</label>
+          <input value={data.adminPassword} onChange={e=>setField("adminPassword",e.target.value)} className={inputCls} />
         </div>
       </div>
 
+      {/* 백업 */}
       <div className="bg-white rounded-2xl border border-line p-5">
-        <p className="font-jua text-lg text-ink mb-3">2. 불러오기</p>
-        <input type="file" accept=".json" onChange={onFile} className="mb-2 text-sm" />
-        <textarea value={importText} onChange={e=>setImportText(e.target.value)} rows="4"
-          placeholder="여기에 JSON을 붙여넣거나 위에서 파일을 선택하세요." className={inputCls+" font-mono text-xs resize-y"} />
-        <button onClick={doImport} className="mt-2 px-4 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">불러오기</button>
+        <p className="font-jua text-lg text-ink mb-1">백업 · 복원</p>
+        <p className="text-xs text-muted mb-3">가끔 한 번씩 백업 파일을 내려받아 두면 안심이에요.</p>
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button onClick={download} className="px-4 py-2.5 rounded-xl bg-ink text-white font-bold hover:opacity-90 transition">⬇️ 백업 내려받기</button>
+        </div>
+        <input type="file" accept=".json" onChange={onFile} className="mb-2 text-sm block" />
+        <textarea value={importText} onChange={e=>setImportText(e.target.value)} rows="3"
+          placeholder="복원할 JSON을 붙여넣거나 위에서 파일을 선택하세요." className={inputCls+" font-mono text-xs resize-y"} />
+        <button onClick={doImport} className="mt-2 px-4 py-2.5 rounded-xl bg-coral text-white font-bold hover:opacity-90 transition">복원 (덮어쓰기)</button>
       </div>
     </div>
   );
 }
 
 /* ── 관리자 패널 ── */
-function AdminPanel({ data, setData }){
+function AdminPanel({ data, setData, saveState }){
   const classIds = Object.keys(data.classes);
   const [classId, setClassId] = useState(classIds[0]);
   const [tab, setTab] = useState("feedback");
@@ -839,14 +883,20 @@ function AdminPanel({ data, setData }){
     ["students","학생 관리"],
     ["notices","공지 관리"],
     ["schedule","일정 관리"],
-    ["data","데이터"],
+    ["data","데이터·설정"],
   ];
   const perClass = tab!=="data";
 
+  const saveBadge = {
+    saving: { t:"저장 중…", c:"bg-sun-soft text-[#a9781a]" },
+    saved:  { t:"저장됨",   c:"bg-sprout-soft text-sprout-deep" },
+    error:  { t:"저장 실패", c:"bg-coral-soft text-[#c04a34]" },
+  }[saveState];
+
   return (
     <div className="max-w-3xl mx-auto px-4 pb-24 fade-up">
-      {/* 탭 */}
-      <div className="flex flex-wrap gap-2 mb-4 no-print">
+      {/* 탭 + 저장 상태 */}
+      <div className="flex flex-wrap items-center gap-2 mb-4 no-print">
         {tabs.map(([k,label])=>(
           <button key={k} onClick={()=>setTab(k)}
             className={`px-4 py-2 rounded-full text-sm font-bold border transition
@@ -854,6 +904,11 @@ function AdminPanel({ data, setData }){
             {label}
           </button>
         ))}
+        {saveBadge && (
+          <span className={`ml-auto text-xs font-bold px-3 py-1.5 rounded-full ${saveBadge.c}`}>
+            ☁️ {saveBadge.t}
+          </span>
+        )}
       </div>
 
       {/* 반 선택 */}
@@ -881,32 +936,186 @@ function AdminPanel({ data, setData }){
 }
 
 /* ════════════════════════════════════════════════
-   App
+   상태 화면들
+   ════════════════════════════════════════════════ */
+function CenterWrap({ children }){
+  return <div className="max-w-md mx-auto px-4 pt-8 pb-24 fade-up">{children}</div>;
+}
+
+function SetupScreen(){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-3xl border border-line shadow-card p-7">
+        <div className="text-3xl mb-2 text-center">🔥</div>
+        <h2 className="font-jua text-xl text-ink text-center mb-3">Firebase 연결이 필요해요</h2>
+        <p className="text-sm text-muted leading-relaxed mb-4">
+          index.html 위쪽의 <b>firebaseConfig</b> 부분에 Firebase 콘솔에서 복사한 설정값을 붙여넣어 주세요.
+          (프로젝트 설정 → 내 앱(웹) → SDK 설정/구성)
+        </p>
+        <p className="text-xs text-muted mb-2">그 다음 Firestore 규칙을 아래처럼 설정하세요:</p>
+        <pre className="bg-paper rounded-xl p-3 text-[11px] leading-relaxed overflow-x-auto scroll-thin">{FIRESTORE_RULES}</pre>
+      </div>
+    </CenterWrap>
+  );
+}
+
+function LoadingScreen(){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-3xl border border-line shadow-card p-8 text-center">
+        <div className="text-4xl mb-3 animate-pulse">🌱</div>
+        <p className="font-jua text-lg text-ink">불러오는 중…</p>
+      </div>
+    </CenterWrap>
+  );
+}
+
+function ErrorScreen(){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-3xl border border-coral/40 shadow-card p-7">
+        <div className="text-3xl mb-2 text-center">⚠️</div>
+        <h2 className="font-jua text-xl text-ink text-center mb-3">연결에 문제가 있어요</h2>
+        <p className="text-sm text-muted leading-relaxed mb-3">
+          firebaseConfig 값이 맞는지, Firestore를 만들었는지, 보안 규칙에서 읽기가 허용됐는지 확인해 주세요.
+        </p>
+        <pre className="bg-paper rounded-xl p-3 text-[11px] leading-relaxed overflow-x-auto scroll-thin">{FIRESTORE_RULES}</pre>
+      </div>
+    </CenterWrap>
+  );
+}
+
+function ParentEmpty(){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-3xl border border-line shadow-card p-8 text-center">
+        <div className="text-4xl mb-3">🌱</div>
+        <p className="font-jua text-lg text-ink mb-1">준비 중이에요</p>
+        <p className="text-muted font-gaegu">곧 성장 기록이 올라올 거예요!</p>
+      </div>
+    </CenterWrap>
+  );
+}
+
+function SeedScreen({ onSeed }){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-3xl border border-line shadow-card p-7 text-center">
+        <div className="text-3xl mb-2">🌱</div>
+        <h2 className="font-jua text-xl text-ink mb-2">첫 데이터를 만들까요?</h2>
+        <p className="text-sm text-muted leading-relaxed mb-5">
+          아직 저장된 내용이 없어요. 아래 버튼을 누르면 예시 반·학생이 담긴 기본 데이터가 생성됩니다.
+          이후 내용은 자유롭게 수정하세요.
+        </p>
+        <button onClick={onSeed}
+          className="px-6 py-3 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">
+          초기 데이터 만들기
+        </button>
+      </div>
+    </CenterWrap>
+  );
+}
+
+/* ════════════════════════════════════════════════
+   App (Firebase 실시간 동기화)
    ════════════════════════════════════════════════ */
 function App(){
-  const [data, setData] = useState(initialAppData);
-  const [mode, setMode] = useState("parent");        // parent | admin
-  const [authed, setAuthed] = useState(false);
+  const [data, setData]         = useState(null);
+  const [status, setStatus]     = useState("init");    // init|noconfig|connecting|ready|empty|error
+  const [saveState, setSaveState] = useState(null);    // null|saving|saved|error
+  const [mode, setMode]         = useState("parent");
+  const [authed, setAuthed]     = useState(false);
 
-  const toggleAdmin = () => {
-    if(mode==="admin"){ setMode("parent"); }
-    else { setMode("admin"); }
+  const dbRef       = useRef(null);
+  const localJson   = useRef("");
+  const saveTimer   = useRef(null);
+
+  // Firebase 초기화 + 실시간 구독
+  useEffect(()=>{
+    if(!isConfigured()){ setStatus("noconfig"); return; }
+    try{
+      if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      dbRef.current = firebase.firestore();
+      setStatus("connecting");
+      const ref = dbRef.current.collection(DB_COLLECTION).doc(DB_DOC);
+      const unsub = ref.onSnapshot(
+        (snap)=>{
+          if(snap.exists){
+            const remote = snap.data();
+            const rjson = JSON.stringify(remote);
+            if(rjson !== localJson.current){   // 내 저장의 메아리는 무시
+              localJson.current = rjson;
+              setData(remote);
+            }
+            setStatus("ready");
+          } else {
+            setData(null);
+            setStatus("empty");
+          }
+        },
+        (err)=>{ console.error(err); setStatus("error"); }
+      );
+      return ()=> unsub();
+    }catch(e){ console.error(e); setStatus("error"); }
+  },[]);
+
+  // 디바운스 저장
+  const scheduleSave = (next)=>{
+    if(!dbRef.current) return;
+    setSaveState("saving");
+    if(saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(()=>{
+      dbRef.current.collection(DB_COLLECTION).doc(DB_DOC).set(next)
+        .then(()=> setSaveState("saved"))
+        .catch((e)=>{ console.error(e); setSaveState("error"); });
+    }, 600);
   };
+
+  // 관리자 편집 → 로컬 즉시 반영 + 자동 저장
+  const updateData = (updater)=>{
+    setData(prev=>{
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      localJson.current = JSON.stringify(next);
+      scheduleSave(next);
+      return next;
+    });
+    if(status==="empty") setStatus("ready");
+  };
+
+  const seed = ()=>{
+    localJson.current = JSON.stringify(initialAppData);
+    setData(initialAppData);
+    setStatus("ready");
+    scheduleSave(initialAppData);
+  };
+
+  const toggleAdmin = ()=> setMode(m=> m==="admin" ? "parent" : "admin");
+
+  // ── 렌더 ──
+  if(status==="noconfig") return <SetupScreen />;
+  if(status==="error")    return <ErrorScreen />;
+  if(status==="init" || status==="connecting") return <LoadingScreen />;
+
+  const headerData = data || initialAppData;
 
   return (
     <div className="min-h-screen">
-      <Header data={data} mode={mode} onToggleAdmin={toggleAdmin} />
+      <Header data={headerData} mode={mode} onToggleAdmin={toggleAdmin} />
 
-      {mode==="parent" && <ParentView data={data} />}
+      {mode==="parent" && (
+        (status==="empty" || !data) ? <ParentEmpty /> : <ParentView data={data} />
+      )}
 
       {mode==="admin" && (
-        authed
-          ? <AdminPanel data={data} setData={setData} />
-          : <AdminLogin password={data.adminPassword} onOk={()=>setAuthed(true)} />
+        !authed
+          ? <AdminLogin password={(data && data.adminPassword) || initialAppData.adminPassword} onOk={()=>setAuthed(true)} />
+          : ((status==="empty" || !data)
+              ? <SeedScreen onSeed={seed} />
+              : <AdminPanel data={data} setData={updateData} saveState={saveState} />)
       )}
 
       <footer className="text-center text-muted text-xs pb-10 pt-6 no-print">
-        <p className="font-gaegu text-sm">🌱 {data.brandName} · 매일 조금씩 자라나는 중</p>
+        <p className="font-gaegu text-sm">🌱 {headerData.brandName} · 매일 조금씩 자라나는 중</p>
       </footer>
     </div>
   );
