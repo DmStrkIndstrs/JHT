@@ -401,46 +401,64 @@ function StudentReport({ data, cls, student }){
    [학부모] 메인 뷰 (반 선택 → 학생 선택 → 코드 → 리포트)
    ──────────────────────────────────────────────── */
 function ParentView({ data }){
-  const classIds = Object.keys(data.classes);
-  const [classId, setClassId] = useState(classIds[0]);
-  const [studentId, setStudentId] = useState("");
-  const [codeInput, setCodeInput] = useState("");
-  const [unlocked, setUnlocked] = useState({});   // { studentId:true }
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState("");
+  const [match, setMatch] = useState(null);   // { classId, studentId }
 
-  const cls = data.classes[classId];
-  const student = cls.students.find(s=>s.id===studentId);
-  const needsCode = student && student.code && !unlocked[student.id];
-
-  const pickStudent = (id) => { setStudentId(id); setCodeInput(""); };
-
-  const tryUnlock = () => {
-    if(codeInput.trim() === (student.code||"").trim()){
-      setUnlocked(u=>({...u,[student.id]:true}));
-    } else {
-      alert("코드가 맞지 않아요. 선생님이 알려주신 4자리 코드를 확인해 주세요.");
+  // 코드로 학생 찾기 (전체 반 대상 · 이름 목록 노출 없음)
+  const lookup = () => {
+    const c = code.trim();
+    if(!c){ setErr("코드를 입력해 주세요."); return; }
+    for(const [classId, cls] of Object.entries(data.classes)){
+      const student = cls.students.find(s => (s.code||"").trim() !== "" && (s.code||"").trim() === c);
+      if(student){ setMatch({ classId, studentId:student.id }); setErr(""); setCode(""); return; }
     }
+    setErr("일치하는 코드가 없어요. 선생님께 받으신 코드를 확인해 주세요.");
   };
 
+  const reset = () => { setMatch(null); setErr(""); setCode(""); };
+
+  // 현재 학생은 항상 최신 data에서 조회 (실시간 반영, 삭제 시 안전)
+  const cls = match ? data.classes[match.classId] : null;
+  const student = cls ? cls.students.find(s=>s.id===match.studentId) : null;
+
+  // ── 코드 입력 화면 ──
+  if(!student){
+    return (
+      <div className="max-w-md mx-auto px-4 pt-6 pb-24">
+        <div className="bg-white rounded-2xl border border-line shadow-card p-7 text-center pop">
+          <h2 className="font-jua text-xl text-ink mb-2">학생 코드로 조회</h2>
+          <p className="text-muted text-sm leading-relaxed mb-5">
+            선생님께 받으신 학생 코드를 입력하시면<br/>자녀의 학습 기록을 확인하실 수 있어요.
+          </p>
+          <div className="flex gap-2 max-w-xs mx-auto">
+            <input value={code} onChange={e=>{ setCode(e.target.value); setErr(""); }}
+              onKeyDown={e=> e.key==="Enter" && lookup()}
+              placeholder="학생 코드 입력" inputMode="numeric"
+              className="flex-1 px-3 py-3 rounded-xl border border-line bg-paper text-center font-jua tracking-widest" />
+            <button onClick={lookup}
+              className="px-5 py-3 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">조회</button>
+          </div>
+          {err && <p className="text-coral text-sm mt-3 font-medium">{err}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  // ── 리포트 화면 ──
   return (
     <div className="max-w-2xl mx-auto px-4 pb-24">
-      {/* 반 탭 */}
-      {classIds.length>1 && (
-        <div className="flex flex-wrap justify-center gap-2 mb-5 no-print">
-          {classIds.map(id=>(
-            <button key={id} onClick={()=>{ setClassId(id); setStudentId(""); }}
-              className={`px-4 py-2 rounded-full text-sm font-bold border transition
-                ${classId===id ? "bg-sprout text-white border-sprout shadow-card"
-                               : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
-              {data.classes[id].name}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="flex justify-end mb-3 no-print">
+        <button onClick={reset}
+          className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">
+          다른 코드로 조회
+        </button>
+      </div>
 
       {/* 공지 */}
       {(cls.notices||[]).length>0 && (
         <div className="bg-sun-soft/70 border border-sun/50 rounded-2xl p-4 mb-5">
-          <p className="font-jua text-[#a9781a] mb-2 flex items-center gap-1.5">공지사항</p>
+          <p className="font-jua text-[#a9781a] mb-2">공지사항</p>
           <ul className="space-y-1.5">
             {cls.notices.map((n,i)=>(
               <li key={i} className="text-ink text-sm leading-relaxed flex gap-2">
@@ -452,55 +470,12 @@ function ParentView({ data }){
         </div>
       )}
 
-      {/* 학생 선택 */}
-      <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5 no-print">
-        <label className="font-gaegu text-sprout-deep text-lg block mb-2">우리 아이를 선택해 주세요 </label>
-        <div className="flex flex-wrap gap-2">
-          {cls.students.map(s=>(
-            <button key={s.id} onClick={()=>pickStudent(s.id)}
-              className={`px-4 py-2 rounded-xl font-bold border transition
-                ${studentId===s.id ? "bg-sprout text-white border-sprout"
-                                   : "bg-paper text-ink border-line hover:border-sprout-ring"}`}>
-              {s.name}{s.code ? " " : ""}
-            </button>
-          ))}
-          {cls.students.length===0 && <p className="text-muted text-sm">등록된 학생이 없어요.</p>}
-        </div>
-      </div>
-
-      {/* 코드 게이트 */}
-      {needsCode && (
-        <div className="bg-white rounded-2xl border border-line shadow-soft p-6 text-center pop">
-          <div className="text-3xl mb-2"></div>
-          <p className="text-ink font-bold mb-1">{student.name} 학생 기록 열기</p>
-          <p className="text-muted text-sm mb-4">선생님이 알려주신 코드를 입력해 주세요.</p>
-          <div className="flex gap-2 max-w-xs mx-auto">
-            <input value={codeInput} onChange={e=>setCodeInput(e.target.value)}
-              onKeyDown={e=> e.key==="Enter" && tryUnlock()}
-              placeholder="코드 입력" inputMode="numeric"
-              className="flex-1 px-3 py-2.5 rounded-xl border border-line bg-paper text-center font-jua tracking-widest" />
-            <button onClick={tryUnlock}
-              className="px-4 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">열기</button>
-          </div>
-        </div>
-      )}
-
-      {/* 리포트 */}
-      {student && !needsCode && (
-        <StudentReport data={data} cls={cls} student={student} />
-      )}
-
-      {!student && (
-        <div className="text-center text-muted py-10">
-          <div className="text-4xl mb-3"></div>
-          <p className="font-gaegu text-lg">이름을 선택하면 성장 기록을 볼 수 있어요.</p>
-        </div>
-      )}
+      <StudentReport data={data} cls={cls} student={student} />
 
       {/* 수업 일정 */}
-      {student && !needsCode && (cls.schedule||[]).length>0 && (
+      {(cls.schedule||[]).length>0 && (
         <div className="bg-white rounded-2xl border border-line shadow-card p-6 mt-5">
-          <h3 className="font-jua text-xl text-ink mb-4 flex items-center gap-2">수업 일정</h3>
+          <h3 className="font-jua text-xl text-ink mb-4">수업 일정</h3>
           <div className="space-y-2">
             {cls.schedule.map(row=>{
               const isToday = row.date===todayMD();
@@ -708,6 +683,14 @@ function StudentManager({ data, setData, classId }){
     setData(prev=>{ const d=clone(prev); d.classes[classId].students=d.classes[classId].students.filter(s=>s.id!==sid); return d; });
   };
 
+  // 코드 자동 생성 (전체 반에서 겹치지 않는 4자리)
+  const genCode = (sid) => {
+    const used = new Set();
+    Object.values(data.classes).forEach(c=> c.students.forEach(s=>{ if((s.code||"").trim()) used.add(s.code.trim()); }));
+    let c; do { c = String(Math.floor(1000 + Math.random()*9000)); } while(used.has(c));
+    upd(sid, "code", c);
+  };
+
   return (
     <div>
       <div className="bg-white rounded-2xl border border-line p-4 mb-5 flex gap-2">
@@ -716,7 +699,7 @@ function StudentManager({ data, setData, classId }){
         <button onClick={add} className="px-5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition whitespace-nowrap">추가</button>
       </div>
 
-      <p className="text-xs text-muted mb-3"> 코드를 입력하면 학부모가 그 코드를 알아야 기록을 볼 수 있어요. (비워두면 누구나 열람 가능)</p>
+      <p className="text-xs text-muted mb-3"> 학부모는 이 코드로만 본인 자녀를 조회할 수 있어요. 다른 학생의 이름·기록은 화면에 보이지 않습니다. 코드가 없는 학생은 조회가 불가능하니 꼭 지정해 주세요.</p>
 
       <div className="space-y-3">
         {cls.students.map(s=>(
@@ -728,8 +711,11 @@ function StudentManager({ data, setData, classId }){
             </div>
             <div className="grid sm:grid-cols-3 gap-3">
               <div>
-                <label className="text-xs text-muted font-bold">열람 코드</label>
-                <input value={s.code} onChange={e=>upd(s.id,"code",e.target.value)} placeholder="예: 1234" className={inputCls} />
+                <label className="text-xs text-muted font-bold">열람 코드 (필수)</label>
+                <div className="flex gap-1.5">
+                  <input value={s.code} onChange={e=>upd(s.id,"code",e.target.value)} placeholder="예: 1234" className={inputCls} />
+                  <button onClick={()=>genCode(s.id)} className="shrink-0 px-2.5 rounded-xl bg-sprout-soft text-sprout-deep text-xs font-bold hover:bg-sprout-ring transition whitespace-nowrap">자동</button>
+                </div>
               </div>
               <div>
                 <label className="text-xs text-muted font-bold">과제 수행률 %</label>
