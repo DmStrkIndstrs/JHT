@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>정훈T 과학 · 고1</title>
+
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- React / ReactDOM -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<!-- Babel -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<!-- html2canvas (리포트 이미지 저장용) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- Firebase (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<!-- Google Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<script>
+  // Tailwind 커스텀 토큰 (원본과 확실히 다른 팔레트/폰트)
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          paper:  "#edeff2",
+          ink:    "#1b2431",
+          muted:  "#6b7480",
+          sprout: { DEFAULT:"#9c2f4d", deep:"#7f2540", soft:"#f4e5ea", ring:"#e2c3cd" },
+          sun:    { DEFAULT:"#b98a2b", soft:"#f6ecd8" },
+          coral:  { DEFAULT:"#c0392b", soft:"#f6e0dd" },
+          line:   "#dde1e6",
+        },
+        fontFamily: {
+          jua:   ['"IBM Plex Sans KR"', 'sans-serif'],
+          noto:  ['"Noto Sans KR"', 'sans-serif'],
+          gaegu: ['"IBM Plex Mono"', 'monospace'],
+        },
+        boxShadow: {
+          card: "0 12px 32px -20px rgba(27,36,49,0.45)",
+          soft: "0 6px 18px -12px rgba(27,36,49,0.30)",
+        }
+      }
+    }
+  }
+</script>
+
+<style>
+  body{ font-family:'IBM Plex Sans KR','Noto Sans KR', sans-serif; background:#edeff2; color:#1b2431; }
+  .font-jua{ font-family:'IBM Plex Sans KR', sans-serif; font-weight:700; letter-spacing:-0.01em; }
+  .font-gaegu{ font-family:'IBM Plex Mono', monospace; }
+
+  /* 배경: 아주 은은한 노트 점무늬 (원본의 차가운 그리드와 다른 결) */
+  .note-bg{
+    background-color:#edeff2;
+    background-image:linear-gradient(rgba(27,36,49,0.035) 1px, transparent 1px);
+    background-size:100% 34px;
+  }
+
+  .fade-up{ animation:fadeUp .4s ease-out both; }
+  @keyframes fadeUp{ from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:translateY(0)} }
+
+  .pop{ animation:pop .35s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes pop{ from{opacity:0; transform:scale(.96)} to{opacity:1; transform:scale(1)} }
+
+  .scroll-thin::-webkit-scrollbar{ width:8px; height:8px; }
+  .scroll-thin::-webkit-scrollbar-thumb{ background:#cfe3d7; border-radius:9px; }
+  .scroll-thin::-webkit-scrollbar-track{ background:transparent; }
+
+  /* 성장 타임라인 세로 줄기 */
+  .stem{ background:#dde1e6; }
+
+  input:focus, textarea:focus, select:focus{ outline:none; }
+
+  @media print{
+    .no-print{ display:none !important; }
+    body, .note-bg{ background:#fff !important; background-image:none !important; }
+  }
+</style>
+</head>
+<body class="note-bg">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useMemo, useRef, useEffect } = React;
+
+/* ════════════════════════════════════════════════
+    Firebase 설정
+   Firebase 콘솔 → 프로젝트 설정 → 내 앱(웹) → SDK 설정/구성에서
+   복사한 값을 아래에 붙여넣으세요. (projectId 등)
+   ════════════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey:            "여기에_붙여넣기",
+  authDomain:        "여기에_붙여넣기",
+  projectId:         "여기에_붙여넣기",
+  storageBucket:     "여기에_붙여넣기",
+  messagingSenderId: "여기에_붙여넣기",
+  appId:             "여기에_붙여넣기",
+};
+const DB_COLLECTION = "jht_h1";   // 컬렉션 이름 (원하면 변경)
+const DB_DOC        = "data";  // 문서 이름 (원하면 변경)
+
+// Firestore 보안 규칙 예시 (콘솔 → Firestore → 규칙)
+const FIRESTORE_RULES =
+`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /${DB_COLLECTION}/{doc} {
+      allow read: if true;
+      allow write: if true;   //  시작용. 운영 시 Auth로 제한 권장
+    }
+  }
+}`;
+
+const isConfigured = () => firebaseConfig.projectId && firebaseConfig.projectId !== "여기에_붙여넣기";
+
+/* ────────────────────────────────────────────────
+   초기(시드) 데이터 — Firestore가 비어 있을 때 한 번 생성용
+   ──────────────────────────────────────────────── */
+const initialAppData = {
+  brandName: "정훈T 과학 · 고1",
+  tagline: "체계적인 내신·모의고사 성적 관리",
+  adminPassword: "1234",          //  배포 전 꼭 변경하세요
+  ratings: [
+    { key:"great", label:"우수",     emoji:"" },
+    { key:"good",  label:"양호",     emoji:"" },
+    { key:"soso",  label:"보통",     emoji:"" },
+    { key:"cheer", label:"보완 필요", emoji:"" },
+  ],
+  categories: ["내신 대비","모의고사","개념 이해","과제 수행","오답 관리","태도"],
+  classes: {
+    h1a: {
+      name: "고1 통합과학",
+      notices: [
+        "9월 <b>1차 지필평가</b> 대비 기간입니다. 오답 노트 지참을 부탁드립니다.",
+        "매주 <b>토요일</b> 모의고사형 테스트를 진행합니다.",
+      ],
+      schedule: [
+        { id:"sc1", date:"8/14", day:"목", content:"역학적 시스템 · 자유낙하 정리", homework:"기출 12~18p" },
+        { id:"sc2", date:"8/16", day:"토", content:"주간 모의 테스트 (1회)", homework:"오답 분석" },
+        { id:"sc3", date:"8/21", day:"목", content:"화학 반응과 규칙성", homework:"워크북 40~46p" },
+      ],
+      students: [
+        { id:"st1", name:"김서준", code:"", homeworkRate:92, attendanceRate:100, summary:"",
+          feedbacks:[
+            { id:"f1", date:"2026-08-07", category:"모의고사", rating:"great",
+              content:"모의 대비 문항에서 킬러 유형 접근이 안정적입니다. 개념 간 연결이 탄탄합니다." },
+            { id:"f2", date:"2026-07-31", category:"과제 수행", rating:"good",
+              content:"내신 범위 과제를 성실히 제출했고 오답 분석이 꼼꼼합니다." },
+          ] },
+        { id:"st2", name:"이지우", code:"", homeworkRate:78, attendanceRate:96, summary:"",
+          feedbacks:[
+            { id:"f3", date:"2026-08-07", category:"오답 관리", rating:"cheer",
+              content:"화학 반응 계산에서 실수가 반복됩니다. 유형별 반복 훈련을 권장합니다." },
+          ] },
+      ],
+    },
+    h1b: {
+      name: "고1 심화",
+      notices: [
+        "심화반은 <b>모의고사 고난도 문항</b> 중심으로 진행됩니다.",
+      ],
+      schedule: [
+        { id:"sc4", date:"8/15", day:"금", content:"고난도 역학 문항 풀이", homework:"프린트 B" },
+      ],
+      students: [
+        { id:"st3", name:"박도윤", code:"", homeworkRate:88, attendanceRate:100, summary:"",
+          feedbacks:[
+            { id:"f4", date:"2026-08-08", category:"개념 이해", rating:"great",
+              content:"고난도 문항의 조건 분석이 정확합니다. 서술형 논리 전개가 우수합니다." },
+          ] },
+      ],
+    },
+  },
+};
+
+/* ── 유틸 ── */
+const uid = () => Math.random().toString(36).slice(2,9);
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const todayISO = () => new Date().toISOString().slice(0,10);
+const todayMD = () => { const d=new Date(); return `${d.getMonth()+1}/${d.getDate()}`; };
+const fmtKDate = (iso) => {
+  if(!iso) return "";
+  const [y,m,d] = iso.split("-");
+  return `${y}. ${parseInt(m,10)}. ${parseInt(d,10)}`;
+};
+
+/* ── 작은 공용 컴포넌트 ── */
+function Sprout({ className="w-6 h-6" }){
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 21V11"/>
+      <path d="M12 13c0-3-2.5-5-6-5 0 3 2.5 5 6 5Z"/>
+      <path d="M12 11c0-3 2.5-5.5 6.5-5.5 0 3.2-2.7 5.5-6.5 5.5Z"/>
+    </svg>
+  );
+}
+
+function Chip({ children, tone="sprout" }){
+  const map = {
+    sprout:"bg-sprout-soft text-sprout-deep",
+    sun:"bg-sun-soft text-[#a9781a]",
+    coral:"bg-coral-soft text-[#c04a34]",
+    gray:"bg-line text-muted",
+  };
+  return <span className={`inline-block text-xs font-bold px-2.5 py-1 rounded-full ${map[tone]}`}>{children}</span>;
+}
+
+/* 카테고리별 색 톤 */
+const catTone = (c) => {
+  if(c==="칭찬·격려") return "sun";
+  if(c==="시험·평가") return "coral";
+  if(c==="수업 태도") return "sprout";
+  return "gray";
+};
+const ratingTone = (r) => r==="cheer" ? "coral" : r==="soso" ? "sun" : "sprout";
+
+/* 진행 막대 */
+function Meter({ value, label }){
+  const v = Math.max(0, Math.min(100, value||0));
+  const color = v>=85 ? "bg-sprout" : v>=60 ? "bg-sun" : "bg-coral";
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1">
+        <span className="text-muted font-medium">{label}</span>
+        <span className="font-jua text-ink">{v}%</span>
+      </div>
+      <div className="h-2.5 rounded-full bg-line overflow-hidden">
+        <div className={`h-full rounded-full ${color} transition-all duration-700`} style={{width:`${v}%`}} />
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────
+   헤더
+   ──────────────────────────────────────────────── */
+function Header({ data, mode, onToggleAdmin }){
+  return (
+    <header className="pt-10 pb-8 px-5 text-center relative">
+      <div className="max-w-4xl mx-auto">
+        <div className="inline-flex items-center justify-center mb-4 fade-up">
+          <span className="w-12 h-12 rounded-xl bg-ink text-white grid place-items-center shadow-card">
+            <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+              <path d="M12 2.6l8 4.6v9.2l-8 4.6-8-4.6V7.2l8-4.6Z"/>
+              <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/>
+            </svg>
+          </span>
+        </div>
+
+        <h1 className="font-jua text-4xl md:text-5xl text-ink tracking-tight fade-up">{data.brandName}</h1>
+        <p className="mt-3 text-muted font-gaegu text-sm tracking-wide fade-up">{data.tagline}</p>
+
+        <div className="mt-5 flex justify-center no-print">
+          <button onClick={onToggleAdmin}
+            className={`text-xs font-bold px-4 py-2 rounded-full border transition
+              ${mode==="admin"
+                ? "bg-ink text-white border-ink"
+                : "bg-white text-muted border-line hover:border-sprout-ring hover:text-sprout-deep"}`}>
+            {mode==="admin" ? "← 학부모 화면으로" : "선생님 관리자"}
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ────────────────────────────────────────────────
+   [학부모] 성장 타임라인 (시그니처 요소)
+   ──────────────────────────────────────────────── */
+function GrowthTimeline({ feedbacks, ratings }){
+  const list = [...feedbacks].sort((a,b)=> (a.date<b.date?1:-1));
+  const ratingOf = (k)=> ratings.find(r=>r.key===k) || {emoji:"", label:""};
+
+  if(list.length===0){
+    return (
+      <div className="text-center py-14 text-muted">
+        <div className="text-4xl mb-3"></div>
+        <p className="font-gaegu text-lg">아직 등록된 기록이 없어요.<br/>곧 첫 성장 기록이 올라올 거예요!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative pl-8">
+      {/* 세로 줄기 */}
+      <div className="stem absolute left-[11px] top-2 bottom-2 w-[3px] rounded-full" />
+      <div className="space-y-6">
+        {list.map((f, i) => {
+          const rt = ratingOf(f.rating);
+          return (
+            <div key={f.id} className="relative pop" style={{animationDelay:`${i*60}ms`}}>
+              {/* 노드 */}
+              <span className="absolute -left-8 top-1 w-6 h-6 grid place-items-center">
+                <span className="w-3 h-3 rotate-45 bg-white border-2 border-sprout shadow-soft" />
+              </span>
+              {i===0 && (
+                <span className="absolute -left-8 -top-4 font-gaegu text-[10px] text-sprout-deep font-semibold tracking-widest">LATEST</span>
+              )}
+              <div className="bg-white rounded-2xl border border-line shadow-soft p-4">
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  <span className="font-gaegu text-muted text-sm">{fmtKDate(f.date)}</span>
+                  <Chip tone={catTone(f.category)}>{f.category}</Chip>
+                  <Chip tone={ratingTone(f.rating)}>{rt.label}</Chip>
+                </div>
+                <p className="text-ink leading-relaxed text-[15px]">{f.content}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────
+   [학부모] 학생 리포트
+   ──────────────────────────────────────────────── */
+function StudentReport({ data, cls, student }){
+  const captureRef = useRef(null);
+
+  const recent = useMemo(()=>{
+    const s=[...student.feedbacks].sort((a,b)=> (a.date<b.date?1:-1));
+    return s[0];
+  },[student]);
+
+  const handleSave = () => {
+    const el = captureRef.current;
+    if(!el || !window.html2canvas) return;
+    window.html2canvas(el, { backgroundColor:"#f4f7f3", scale:2.5, useCORS:true, logging:false })
+      .then(canvas=>{
+        const link=document.createElement("a");
+        link.download=`${student.name}_성장기록_${todayISO()}.png`;
+        link.href=canvas.toDataURL("image/png");
+        link.click();
+      })
+      .catch(()=> alert("이미지 저장에 실패했어요. 다시 시도해 주세요."));
+  };
+
+  return (
+    <div className="fade-up">
+      {/* 저장 버튼 */}
+      <div className="flex justify-end gap-2 mb-3 no-print">
+        <button onClick={handleSave}
+          className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">
+          이미지로 저장
+        </button>
+        <button onClick={()=>window.print()}
+          className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">
+          인쇄
+        </button>
+      </div>
+
+      <div ref={captureRef} className="space-y-5">
+        {/* 요약 카드 */}
+        <div className="bg-white rounded-2xl border border-line shadow-card p-6 md:p-7 relative overflow-hidden">
+          <div className="absolute left-0 top-0 h-1.5 w-full bg-sprout" />
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-1">
+              <Chip tone="sprout">{cls.name}</Chip>
+              <span className="font-gaegu text-muted text-sm">성장 기록 · {student.feedbacks.length}개</span>
+            </div>
+            <h2 className="font-jua text-3xl text-ink">
+              {student.name} <span className="text-lg text-muted font-noto font-normal">학생</span>
+            </h2>
+
+            {(student.summary || recent) && (
+              <div className="mt-4 bg-sprout-soft/70 rounded-2xl p-4 border border-sprout-ring">
+                <p className="font-gaegu text-sprout-deep text-sm mb-1">선생님 한마디 </p>
+                <p className="text-ink leading-relaxed">
+                  {student.summary || recent.content}
+                </p>
+              </div>
+            )}
+
+            <div className="grid sm:grid-cols-2 gap-4 mt-5">
+              <Meter label="과제 수행률" value={student.homeworkRate} />
+              <Meter label="출석률" value={student.attendanceRate} />
+            </div>
+          </div>
+        </div>
+
+        {/* 성장 타임라인 */}
+        <div className="bg-white rounded-2xl border border-line shadow-card p-6 md:p-7">
+          <h3 className="font-jua text-xl text-ink mb-5 flex items-center gap-2">
+            <span className="w-1.5 h-4 bg-sprout rounded-sm" />평가 기록
+          </h3>
+          <GrowthTimeline feedbacks={student.feedbacks} ratings={data.ratings} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────
+   [학부모] 메인 뷰 (반 선택 → 학생 선택 → 코드 → 리포트)
+   ──────────────────────────────────────────────── */
+function ParentView({ data }){
+  const classIds = Object.keys(data.classes);
+  const [classId, setClassId] = useState(classIds[0]);
+  const [studentId, setStudentId] = useState("");
+  const [codeInput, setCodeInput] = useState("");
+  const [unlocked, setUnlocked] = useState({});   // { studentId:true }
+
+  const cls = data.classes[classId];
+  const student = cls.students.find(s=>s.id===studentId);
+  const needsCode = student && student.code && !unlocked[student.id];
+
+  const pickStudent = (id) => { setStudentId(id); setCodeInput(""); };
+
+  const tryUnlock = () => {
+    if(codeInput.trim() === (student.code||"").trim()){
+      setUnlocked(u=>({...u,[student.id]:true}));
+    } else {
+      alert("코드가 맞지 않아요. 선생님이 알려주신 4자리 코드를 확인해 주세요.");
+    }
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 pb-24">
+      {/* 반 탭 */}
+      {classIds.length>1 && (
+        <div className="flex flex-wrap justify-center gap-2 mb-5 no-print">
+          {classIds.map(id=>(
+            <button key={id} onClick={()=>{ setClassId(id); setStudentId(""); }}
+              className={`px-4 py-2 rounded-full text-sm font-bold border transition
+                ${classId===id ? "bg-sprout text-white border-sprout shadow-card"
+                               : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
+              {data.classes[id].name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 공지 */}
+      {(cls.notices||[]).length>0 && (
+        <div className="bg-sun-soft/70 border border-sun/50 rounded-2xl p-4 mb-5">
+          <p className="font-jua text-[#a9781a] mb-2 flex items-center gap-1.5">공지사항</p>
+          <ul className="space-y-1.5">
+            {cls.notices.map((n,i)=>(
+              <li key={i} className="text-ink text-sm leading-relaxed flex gap-2">
+                <span className="text-sun">·</span>
+                <span dangerouslySetInnerHTML={{__html:n}} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 학생 선택 */}
+      <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5 no-print">
+        <label className="font-gaegu text-sprout-deep text-lg block mb-2">우리 아이를 선택해 주세요 </label>
+        <div className="flex flex-wrap gap-2">
+          {cls.students.map(s=>(
+            <button key={s.id} onClick={()=>pickStudent(s.id)}
+              className={`px-4 py-2 rounded-xl font-bold border transition
+                ${studentId===s.id ? "bg-sprout text-white border-sprout"
+                                   : "bg-paper text-ink border-line hover:border-sprout-ring"}`}>
+              {s.name}{s.code ? " " : ""}
+            </button>
+          ))}
+          {cls.students.length===0 && <p className="text-muted text-sm">등록된 학생이 없어요.</p>}
+        </div>
+      </div>
+
+      {/* 코드 게이트 */}
+      {needsCode && (
+        <div className="bg-white rounded-2xl border border-line shadow-soft p-6 text-center pop">
+          <div className="text-3xl mb-2"></div>
+          <p className="text-ink font-bold mb-1">{student.name} 학생 기록 열기</p>
+          <p className="text-muted text-sm mb-4">선생님이 알려주신 코드를 입력해 주세요.</p>
+          <div className="flex gap-2 max-w-xs mx-auto">
+            <input value={codeInput} onChange={e=>setCodeInput(e.target.value)}
+              onKeyDown={e=> e.key==="Enter" && tryUnlock()}
+              placeholder="코드 입력" inputMode="numeric"
+              className="flex-1 px-3 py-2.5 rounded-xl border border-line bg-paper text-center font-jua tracking-widest" />
+            <button onClick={tryUnlock}
+              className="px-4 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">열기</button>
+          </div>
+        </div>
+      )}
+
+      {/* 리포트 */}
+      {student && !needsCode && (
+        <StudentReport data={data} cls={cls} student={student} />
+      )}
+
+      {!student && (
+        <div className="text-center text-muted py-10">
+          <div className="text-4xl mb-3"></div>
+          <p className="font-gaegu text-lg">이름을 선택하면 성장 기록을 볼 수 있어요.</p>
+        </div>
+      )}
+
+      {/* 수업 일정 */}
+      {student && !needsCode && (cls.schedule||[]).length>0 && (
+        <div className="bg-white rounded-2xl border border-line shadow-card p-6 mt-5">
+          <h3 className="font-jua text-xl text-ink mb-4 flex items-center gap-2">수업 일정</h3>
+          <div className="space-y-2">
+            {cls.schedule.map(row=>{
+              const isToday = row.date===todayMD();
+              return (
+                <div key={row.id}
+                  className={`flex items-center gap-3 rounded-xl px-4 py-3 border
+                    ${isToday ? "bg-sprout-soft border-sprout-ring" : "bg-paper border-line"}`}>
+                  <span className="font-jua text-sprout-deep w-16 shrink-0">
+                    {row.date}<span className="text-muted text-xs font-noto"> ({row.day})</span>
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-ink font-medium text-sm">{row.content}</p>
+                    {row.homework && <p className="text-muted text-xs mt-0.5">과제 · {row.homework}</p>}
+                  </div>
+                  {isToday && <Chip tone="sprout">오늘</Chip>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════
+   [선생님] 관리자 영역
+   ════════════════════════════════════════════════ */
+function AdminLogin({ password, onOk }){
+  const [pw, setPw] = useState("");
+  const submit = () => pw===password ? onOk() : alert("비밀번호가 맞지 않습니다.");
+  return (
+    <div className="max-w-sm mx-auto px-4 pt-6 pb-24">
+      <div className="bg-white rounded-2xl border border-line shadow-card p-7 text-center pop">
+        <div className="w-14 h-14 rounded-xl bg-ink text-white grid place-items-center mx-auto mb-4"><svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg></div>
+        <h2 className="font-jua text-2xl text-ink mb-1">선생님 관리자</h2>
+        <p className="text-muted text-sm mb-5">비밀번호를 입력해 주세요.</p>
+        <input type="password" value={pw} onChange={e=>setPw(e.target.value)}
+          onKeyDown={e=> e.key==="Enter" && submit()}
+          placeholder="비밀번호"
+          className="w-full px-4 py-3 rounded-xl border border-line bg-paper text-center mb-3" />
+        <button onClick={submit}
+          className="w-full py-3 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">
+          들어가기
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* 공용 인풋 스타일 */
+const inputCls = "w-full px-3 py-2.5 rounded-xl border border-line bg-paper focus:border-sprout-ring focus:bg-white transition";
+
+/* ── 피드백 관리 ── */
+function FeedbackManager({ data, setData, classId }){
+  const cls = data.classes[classId];
+  const [studentId, setStudentId] = useState(cls.students[0]?.id || "");
+  const blank = { date:todayISO(), category:data.categories[0], rating:"good", content:"" };
+  const [form, setForm] = useState(blank);
+  const [editId, setEditId] = useState(null);
+
+  const student = cls.students.find(s=>s.id===studentId);
+
+  const resetForm = () => { setForm({...blank, date:todayISO()}); setEditId(null); };
+
+  const save = () => {
+    if(!student) return;
+    if(!form.content.trim()){ alert("피드백 내용을 입력해 주세요."); return; }
+    setData(prev=>{
+      const d=clone(prev);
+      const st=d.classes[classId].students.find(s=>s.id===studentId);
+      if(editId){
+        const t=st.feedbacks.find(f=>f.id===editId);
+        Object.assign(t, form);
+      } else {
+        st.feedbacks.push({ id:uid(), ...form });
+      }
+      return d;
+    });
+    resetForm();
+  };
+
+  const startEdit = (f) => { setForm({date:f.date,category:f.category,rating:f.rating,content:f.content}); setEditId(f.id); };
+  const remove = (fid) => {
+    if(!confirm("이 피드백을 삭제할까요?")) return;
+    setData(prev=>{
+      const d=clone(prev);
+      const st=d.classes[classId].students.find(s=>s.id===studentId);
+      st.feedbacks=st.feedbacks.filter(f=>f.id!==fid);
+      return d;
+    });
+    if(editId===fid) resetForm();
+  };
+
+  const list = student ? [...student.feedbacks].sort((a,b)=> (a.date<b.date?1:-1)) : [];
+
+  return (
+    <div>
+      {/* 학생 선택 */}
+      <div className="flex flex-wrap gap-2 mb-5">
+        {cls.students.map(s=>(
+          <button key={s.id} onClick={()=>{ setStudentId(s.id); resetForm(); }}
+            className={`px-3.5 py-2 rounded-xl text-sm font-bold border transition
+              ${studentId===s.id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line hover:border-sprout-ring"}`}>
+            {s.name}
+            <span className="ml-1.5 text-xs opacity-70">{s.feedbacks.length}</span>
+          </button>
+        ))}
+        {cls.students.length===0 && <p className="text-muted text-sm">[학생 관리]에서 학생을 먼저 추가해 주세요.</p>}
+      </div>
+
+      {student && (
+        <>
+          {/* 입력 폼 */}
+          <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5">
+            <p className="font-jua text-lg text-ink mb-4">
+              {editId ? "피드백 수정" : `${student.name} 학생에게 피드백 남기기`} 
+            </p>
+            <div className="grid sm:grid-cols-3 gap-3 mb-3">
+              <div>
+                <label className="text-xs text-muted font-bold">날짜</label>
+                <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} className={inputCls} />
+              </div>
+              <div>
+                <label className="text-xs text-muted font-bold">항목</label>
+                <select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} className={inputCls}>
+                  {data.categories.map(c=><option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted font-bold">평가</label>
+                <select value={form.rating} onChange={e=>setForm({...form,rating:e.target.value})} className={inputCls}>
+                  {data.ratings.map(r=><option key={r.key} value={r.key}>{r.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <textarea value={form.content} onChange={e=>setForm({...form,content:e.target.value})}
+              rows="3" placeholder="학부모님께 전달할 내용을 적어주세요."
+              className={inputCls+" resize-y"} />
+            <div className="flex gap-2 mt-3">
+              <button onClick={save}
+                className="px-5 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">
+                {editId ? "수정 저장" : "추가하기"}
+              </button>
+              {editId && (
+                <button onClick={resetForm}
+                  className="px-4 py-2.5 rounded-xl bg-white border border-line text-muted font-bold hover:border-sprout-ring transition">
+                  취소
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 목록 */}
+          <div className="space-y-3">
+            {list.length===0 && <p className="text-muted text-sm text-center py-6">아직 피드백이 없어요.</p>}
+            {list.map(f=>{
+              const rt=data.ratings.find(r=>r.key===f.rating)||{emoji:"",label:""};
+              return (
+                <div key={f.id} className="bg-white rounded-2xl border border-line p-4 flex gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className="font-gaegu text-muted text-sm">{fmtKDate(f.date)}</span>
+                      <Chip tone={catTone(f.category)}>{f.category}</Chip>
+                      <Chip tone={ratingTone(f.rating)}>{rt.label}</Chip>
+                    </div>
+                    <p className="text-ink text-sm leading-relaxed">{f.content}</p>
+                  </div>
+                  <div className="flex flex-col gap-1.5 shrink-0">
+                    <button onClick={()=>startEdit(f)} className="text-xs font-bold text-sprout-deep hover:underline">수정</button>
+                    <button onClick={()=>remove(f.id)} className="text-xs font-bold text-coral hover:underline">삭제</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── 학생 관리 ── */
+function StudentManager({ data, setData, classId }){
+  const cls = data.classes[classId];
+  const [name, setName] = useState("");
+
+  const add = () => {
+    if(!name.trim()) return;
+    setData(prev=>{
+      const d=clone(prev);
+      d.classes[classId].students.push({ id:uid(), name:name.trim(), code:"", homeworkRate:100, attendanceRate:100, summary:"", feedbacks:[] });
+      return d;
+    });
+    setName("");
+  };
+  const upd = (sid, field, value) => setData(prev=>{
+    const d=clone(prev);
+    const s=d.classes[classId].students.find(x=>x.id===sid);
+    s[field] = (field==="homeworkRate"||field==="attendanceRate") ? Number(value)||0 : value;
+    return d;
+  });
+  const remove = (sid) => {
+    if(!confirm("학생을 삭제하면 피드백 기록도 함께 지워집니다. 진행할까요?")) return;
+    setData(prev=>{ const d=clone(prev); d.classes[classId].students=d.classes[classId].students.filter(s=>s.id!==sid); return d; });
+  };
+
+  return (
+    <div>
+      <div className="bg-white rounded-2xl border border-line p-4 mb-5 flex gap-2">
+        <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=> e.key==="Enter" && add()}
+          placeholder="학생 이름" className={inputCls} />
+        <button onClick={add} className="px-5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition whitespace-nowrap">추가</button>
+      </div>
+
+      <p className="text-xs text-muted mb-3"> 코드를 입력하면 학부모가 그 코드를 알아야 기록을 볼 수 있어요. (비워두면 누구나 열람 가능)</p>
+
+      <div className="space-y-3">
+        {cls.students.map(s=>(
+          <div key={s.id} className="bg-white rounded-2xl border border-line p-4">
+            <div className="flex items-center justify-between mb-3">
+              <input value={s.name} onChange={e=>upd(s.id,"name",e.target.value)}
+                className="font-jua text-lg text-ink bg-transparent border-b border-transparent hover:border-line focus:border-sprout-ring w-40" />
+              <button onClick={()=>remove(s.id)} className="text-xs font-bold text-coral hover:underline">삭제</button>
+            </div>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-muted font-bold">열람 코드</label>
+                <input value={s.code} onChange={e=>upd(s.id,"code",e.target.value)} placeholder="예: 1234" className={inputCls} />
+              </div>
+              <div>
+                <label className="text-xs text-muted font-bold">과제 수행률 %</label>
+                <input type="number" min="0" max="100" value={s.homeworkRate} onChange={e=>upd(s.id,"homeworkRate",e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="text-xs text-muted font-bold">출석률 %</label>
+                <input type="number" min="0" max="100" value={s.attendanceRate} onChange={e=>upd(s.id,"attendanceRate",e.target.value)} className={inputCls} />
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className="text-xs text-muted font-bold">종합 한마디 (비워두면 최근 피드백이 표시돼요)</label>
+              <textarea value={s.summary} onChange={e=>upd(s.id,"summary",e.target.value)} rows="2" className={inputCls+" resize-y"} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── 공지 관리 ── */
+function NoticeManager({ data, setData, classId }){
+  const cls = data.classes[classId];
+  const [text, setText] = useState("");
+  const add = () => { if(!text.trim())return; setData(prev=>{const d=clone(prev); d.classes[classId].notices.push(text.trim()); return d;}); setText(""); };
+  const upd = (i,v) => setData(prev=>{const d=clone(prev); d.classes[classId].notices[i]=v; return d;});
+  const remove = (i) => setData(prev=>{const d=clone(prev); d.classes[classId].notices.splice(i,1); return d;});
+  return (
+    <div>
+      <div className="bg-white rounded-2xl border border-line p-4 mb-5 flex gap-2">
+        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=> e.key==="Enter" && add()}
+          placeholder="알림장 내용 (HTML 태그 <b> 사용 가능)" className={inputCls} />
+        <button onClick={add} className="px-5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">추가</button>
+      </div>
+      <div className="space-y-2">
+        {cls.notices.map((n,i)=>(
+          <div key={i} className="bg-white rounded-xl border border-line p-3 flex gap-2">
+            <input value={n} onChange={e=>upd(i,e.target.value)} className="flex-1 bg-transparent text-sm" />
+            <button onClick={()=>remove(i)} className="text-xs font-bold text-coral hover:underline shrink-0">삭제</button>
+          </div>
+        ))}
+        {cls.notices.length===0 && <p className="text-muted text-sm text-center py-4">공지가 없어요.</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ── 일정 관리 ── */
+function ScheduleManager({ data, setData, classId }){
+  const cls = data.classes[classId];
+  const add = () => setData(prev=>{const d=clone(prev); d.classes[classId].schedule.push({id:uid(),date:todayMD(),day:"",content:"",homework:""}); return d;});
+  const upd = (id,field,v) => setData(prev=>{const d=clone(prev); const r=d.classes[classId].schedule.find(x=>x.id===id); r[field]=v; return d;});
+  const remove = (id) => setData(prev=>{const d=clone(prev); d.classes[classId].schedule=d.classes[classId].schedule.filter(x=>x.id!==id); return d;});
+  return (
+    <div>
+      <button onClick={add} className="mb-4 px-5 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">+ 일정 추가</button>
+      <div className="space-y-2">
+        {cls.schedule.map(r=>(
+          <div key={r.id} className="bg-white rounded-2xl border border-line p-3 grid grid-cols-2 sm:grid-cols-12 gap-2 items-center">
+            <input value={r.date} onChange={e=>upd(r.id,"date",e.target.value)} placeholder="8/20" className={inputCls+" sm:col-span-2"} />
+            <input value={r.day} onChange={e=>upd(r.id,"day",e.target.value)} placeholder="수" className={inputCls+" sm:col-span-1"} />
+            <input value={r.content} onChange={e=>upd(r.id,"content",e.target.value)} placeholder="수업 내용" className={inputCls+" sm:col-span-5"} />
+            <input value={r.homework} onChange={e=>upd(r.id,"homework",e.target.value)} placeholder="과제" className={inputCls+" sm:col-span-3"} />
+            <button onClick={()=>remove(r.id)} className="text-xs font-bold text-coral hover:underline sm:col-span-1">삭제</button>
+          </div>
+        ))}
+        {cls.schedule.length===0 && <p className="text-muted text-sm text-center py-4">일정이 없어요.</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ── 데이터 · 설정 ── */
+function DataManager({ data, setData }){
+  const [importText, setImportText] = useState("");
+  const jsonStr = JSON.stringify(data, null, 2);
+
+  const setField = (k,v) => setData(prev=>{ const d=clone(prev); d[k]=v; return d; });
+
+  const download = () => {
+    const blob = new Blob([jsonStr], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href=url; a.download="backup.json"; a.click();
+    URL.revokeObjectURL(url);
+  };
+  const doImport = () => {
+    try{
+      const parsed = JSON.parse(importText);
+      if(!parsed.classes) throw new Error();
+      setData(parsed);           // Firestore에 자동 저장됨
+      setImportText("");
+      alert("불러오기 완료! (자동 저장됨)");
+    }catch(e){ alert("JSON 형식이 올바르지 않아요."); }
+  };
+  const onFile = (e) => {
+    const file=e.target.files[0]; if(!file)return;
+    const reader=new FileReader();
+    reader.onload=()=>setImportText(reader.result);
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-sprout-soft border border-sprout-ring rounded-2xl p-4 text-sm text-sprout-deep leading-relaxed">
+         이제 수정하는 즉시 <b>자동으로 저장</b>되고 학부모 화면에도 반영됩니다.<br/>
+        GitHub 커밋이나 복사는 더 이상 필요 없어요.
+      </div>
+
+      {/* 사이트 설정 */}
+      <div className="bg-white rounded-2xl border border-line p-5 space-y-3">
+        <p className="font-jua text-lg text-ink">사이트 설정</p>
+        <div>
+          <label className="text-xs text-muted font-bold">사이트 이름</label>
+          <input value={data.brandName} onChange={e=>setField("brandName",e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="text-xs text-muted font-bold">한 줄 소개</label>
+          <input value={data.tagline} onChange={e=>setField("tagline",e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="text-xs text-muted font-bold">관리자 비밀번호</label>
+          <input value={data.adminPassword} onChange={e=>setField("adminPassword",e.target.value)} className={inputCls} />
+        </div>
+      </div>
+
+      {/* 백업 */}
+      <div className="bg-white rounded-2xl border border-line p-5">
+        <p className="font-jua text-lg text-ink mb-1">백업 · 복원</p>
+        <p className="text-xs text-muted mb-3">가끔 한 번씩 백업 파일을 내려받아 두면 안심이에요.</p>
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button onClick={download} className="px-4 py-2.5 rounded-xl bg-ink text-white font-bold hover:opacity-90 transition"> 백업 내려받기</button>
+        </div>
+        <input type="file" accept=".json" onChange={onFile} className="mb-2 text-sm block" />
+        <textarea value={importText} onChange={e=>setImportText(e.target.value)} rows="3"
+          placeholder="복원할 JSON을 붙여넣거나 위에서 파일을 선택하세요." className={inputCls+" font-mono text-xs resize-y"} />
+        <button onClick={doImport} className="mt-2 px-4 py-2.5 rounded-xl bg-coral text-white font-bold hover:opacity-90 transition">복원 (덮어쓰기)</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── 관리자 패널 ── */
+function AdminPanel({ data, setData, saveState }){
+  const classIds = Object.keys(data.classes);
+  const [classId, setClassId] = useState(classIds[0]);
+  const [tab, setTab] = useState("feedback");
+
+  const tabs = [
+    ["feedback","피드백 관리"],
+    ["students","학생 관리"],
+    ["notices","공지 관리"],
+    ["schedule","일정 관리"],
+    ["data","데이터·설정"],
+  ];
+  const perClass = tab!=="data";
+
+  const saveBadge = {
+    saving: { t:"저장 중…", c:"bg-sun-soft text-[#a9781a]" },
+    saved:  { t:"저장됨",   c:"bg-sprout-soft text-sprout-deep" },
+    error:  { t:"저장 실패", c:"bg-coral-soft text-[#c04a34]" },
+  }[saveState];
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 pb-24 fade-up">
+      {/* 탭 + 저장 상태 */}
+      <div className="flex flex-wrap items-center gap-2 mb-4 no-print">
+        {tabs.map(([k,label])=>(
+          <button key={k} onClick={()=>setTab(k)}
+            className={`px-4 py-2 rounded-full text-sm font-bold border transition
+              ${tab===k ? "bg-ink text-white border-ink" : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
+            {label}
+          </button>
+        ))}
+        {saveBadge && (
+          <span className={`ml-auto text-xs font-bold px-3 py-1.5 rounded-full ${saveBadge.c}`}>
+            {saveBadge.t}
+          </span>
+        )}
+      </div>
+
+      {/* 반 선택 */}
+      {perClass && classIds.length>1 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {classIds.map(id=>(
+            <button key={id} onClick={()=>setClassId(id)}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition
+                ${classId===id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line"}`}>
+              {data.classes[id].name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="bg-paper/40 rounded-2xl p-1">
+        {tab==="feedback" && <FeedbackManager key={classId} data={data} setData={setData} classId={classId} />}
+        {tab==="students" && <StudentManager  key={classId} data={data} setData={setData} classId={classId} />}
+        {tab==="notices"  && <NoticeManager   key={classId} data={data} setData={setData} classId={classId} />}
+        {tab==="schedule" && <ScheduleManager key={classId} data={data} setData={setData} classId={classId} />}
+        {tab==="data"     && <DataManager     data={data} setData={setData} />}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════
+   상태 화면들
+   ════════════════════════════════════════════════ */
+function CenterWrap({ children }){
+  return <div className="max-w-md mx-auto px-4 pt-8 pb-24 fade-up">{children}</div>;
+}
+
+function SetupScreen(){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-2xl border border-line shadow-card p-7">
+        <div className="text-3xl mb-2 text-center"></div>
+        <h2 className="font-jua text-xl text-ink text-center mb-3">Firebase 연결이 필요해요</h2>
+        <p className="text-sm text-muted leading-relaxed mb-4">
+          index.html 위쪽의 <b>firebaseConfig</b> 부분에 Firebase 콘솔에서 복사한 설정값을 붙여넣어 주세요.
+          (프로젝트 설정 → 내 앱(웹) → SDK 설정/구성)
+        </p>
+        <p className="text-xs text-muted mb-2">그 다음 Firestore 규칙을 아래처럼 설정하세요:</p>
+        <pre className="bg-paper rounded-xl p-3 text-[11px] leading-relaxed overflow-x-auto scroll-thin">{FIRESTORE_RULES}</pre>
+      </div>
+    </CenterWrap>
+  );
+}
+
+function LoadingScreen(){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-2xl border border-line shadow-card p-8 text-center">
+        <div className="text-4xl mb-3 animate-pulse"></div>
+        <p className="font-jua text-lg text-ink">불러오는 중…</p>
+      </div>
+    </CenterWrap>
+  );
+}
+
+function ErrorScreen(){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-2xl border border-coral/40 shadow-card p-7">
+        <div className="text-3xl mb-2 text-center"></div>
+        <h2 className="font-jua text-xl text-ink text-center mb-3">연결에 문제가 있어요</h2>
+        <p className="text-sm text-muted leading-relaxed mb-3">
+          firebaseConfig 값이 맞는지, Firestore를 만들었는지, 보안 규칙에서 읽기가 허용됐는지 확인해 주세요.
+        </p>
+        <pre className="bg-paper rounded-xl p-3 text-[11px] leading-relaxed overflow-x-auto scroll-thin">{FIRESTORE_RULES}</pre>
+      </div>
+    </CenterWrap>
+  );
+}
+
+function ParentEmpty(){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-2xl border border-line shadow-card p-8 text-center">
+        <div className="text-4xl mb-3"></div>
+        <p className="font-jua text-lg text-ink mb-1">준비 중이에요</p>
+        <p className="text-muted font-gaegu">곧 성장 기록이 올라올 거예요!</p>
+      </div>
+    </CenterWrap>
+  );
+}
+
+function SeedScreen({ onSeed }){
+  return (
+    <CenterWrap>
+      <div className="bg-white rounded-2xl border border-line shadow-card p-7 text-center">
+        <div className="text-3xl mb-2"></div>
+        <h2 className="font-jua text-xl text-ink mb-2">첫 데이터를 만들까요?</h2>
+        <p className="text-sm text-muted leading-relaxed mb-5">
+          아직 저장된 내용이 없어요. 아래 버튼을 누르면 예시 반·학생이 담긴 기본 데이터가 생성됩니다.
+          이후 내용은 자유롭게 수정하세요.
+        </p>
+        <button onClick={onSeed}
+          className="px-6 py-3 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">
+          초기 데이터 만들기
+        </button>
+      </div>
+    </CenterWrap>
+  );
+}
+
+/* ════════════════════════════════════════════════
+   App (Firebase 실시간 동기화)
+   ════════════════════════════════════════════════ */
+function App(){
+  const [data, setData]         = useState(null);
+  const [status, setStatus]     = useState("init");    // init|noconfig|connecting|ready|empty|error
+  const [saveState, setSaveState] = useState(null);    // null|saving|saved|error
+  const [mode, setMode]         = useState("parent");
+  const [authed, setAuthed]     = useState(false);
+
+  const dbRef       = useRef(null);
+  const localJson   = useRef("");
+  const saveTimer   = useRef(null);
+
+  // Firebase 초기화 + 실시간 구독
+  useEffect(()=>{
+    if(!isConfigured()){ setStatus("noconfig"); return; }
+    try{
+      if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+      dbRef.current = firebase.firestore();
+      setStatus("connecting");
+      const ref = dbRef.current.collection(DB_COLLECTION).doc(DB_DOC);
+      const unsub = ref.onSnapshot(
+        (snap)=>{
+          if(snap.exists){
+            const remote = snap.data();
+            const rjson = JSON.stringify(remote);
+            if(rjson !== localJson.current){   // 내 저장의 메아리는 무시
+              localJson.current = rjson;
+              setData(remote);
+            }
+            setStatus("ready");
+          } else {
+            setData(null);
+            setStatus("empty");
+          }
+        },
+        (err)=>{ console.error(err); setStatus("error"); }
+      );
+      return ()=> unsub();
+    }catch(e){ console.error(e); setStatus("error"); }
+  },[]);
+
+  // 디바운스 저장
+  const scheduleSave = (next)=>{
+    if(!dbRef.current) return;
+    setSaveState("saving");
+    if(saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(()=>{
+      dbRef.current.collection(DB_COLLECTION).doc(DB_DOC).set(next)
+        .then(()=> setSaveState("saved"))
+        .catch((e)=>{ console.error(e); setSaveState("error"); });
+    }, 600);
+  };
+
+  // 관리자 편집 → 로컬 즉시 반영 + 자동 저장
+  const updateData = (updater)=>{
+    setData(prev=>{
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      localJson.current = JSON.stringify(next);
+      scheduleSave(next);
+      return next;
+    });
+    if(status==="empty") setStatus("ready");
+  };
+
+  const seed = ()=>{
+    localJson.current = JSON.stringify(initialAppData);
+    setData(initialAppData);
+    setStatus("ready");
+    scheduleSave(initialAppData);
+  };
+
+  const toggleAdmin = ()=> setMode(m=> m==="admin" ? "parent" : "admin");
+
+  // ── 렌더 ──
+  if(status==="noconfig") return <SetupScreen />;
+  if(status==="error")    return <ErrorScreen />;
+  if(status==="init" || status==="connecting") return <LoadingScreen />;
+
+  const headerData = data || initialAppData;
+
+  return (
+    <div className="min-h-screen">
+      <Header data={headerData} mode={mode} onToggleAdmin={toggleAdmin} />
+
+      {mode==="parent" && (
+        (status==="empty" || !data) ? <ParentEmpty /> : <ParentView data={data} />
+      )}
+
+      {mode==="admin" && (
+        !authed
+          ? <AdminLogin password={(data && data.adminPassword) || initialAppData.adminPassword} onOk={()=>setAuthed(true)} />
+          : ((status==="empty" || !data)
+              ? <SeedScreen onSeed={seed} />
+              : <AdminPanel data={data} setData={updateData} saveState={saveState} />)
+      )}
+
+      <footer className="text-center text-muted text-xs pb-10 pt-6 no-print">
+        <p className="font-gaegu text-sm"> {headerData.brandName} · 내신·모의고사 학습 관리</p>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
