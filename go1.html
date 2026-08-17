@@ -125,7 +125,7 @@ const isConfigured = () => firebaseConfig.projectId && firebaseConfig.projectId 
 const initialAppData = {
   brandName: "정훈T 과학 · 고1",
   tagline: "체계적인 내신·모의고사 성적 관리",
-  adminPassword: "1234",          //  배포 전 꼭 변경하세요
+  adminPassword: "1234",
   ratings: [
     { key:"great", label:"우수",     emoji:"" },
     { key:"good",  label:"양호",     emoji:"" },
@@ -133,6 +133,11 @@ const initialAppData = {
     { key:"cheer", label:"보완 필요", emoji:"" },
   ],
   categories: ["내신 대비","모의고사","개념 이해","과제 수행","오답 관리","태도"],
+  terms: [
+    { id:"t1", label:"2026 1학기 중간고사" },
+    { id:"t2", label:"2026 1학기 기말고사" },
+  ],
+  currentTermId: "t2",
   classes: {
     h1a: {
       name: "고1 통합과학",
@@ -143,20 +148,18 @@ const initialAppData = {
       schedule: [
         { id:"sc1", date:"8/14", day:"목", content:"역학적 시스템 · 자유낙하 정리", homework:"기출 12~18p" },
         { id:"sc2", date:"8/16", day:"토", content:"주간 모의 테스트 (1회)", homework:"오답 분석" },
-        { id:"sc3", date:"8/21", day:"목", content:"화학 반응과 규칙성", homework:"워크북 40~46p" },
       ],
       students: [
-        { id:"st1", name:"김서준", code:"", homeworkRate:92, attendanceRate:100, summary:"",
+        { id:"st1", name:"김서준", code:"", homeworkRate:92, attendanceRate:100,
+          termNotes:{ t1:"1학기 중간 대비 기간 동안 개념 간 연결이 탄탄해졌습니다. 모의 대비 문항에서 킬러 유형 접근이 안정적이며, 서술형 논리 전개가 우수합니다." },
           feedbacks:[
-            { id:"f1", date:"2026-08-07", category:"모의고사", rating:"great",
-              content:"모의 대비 문항에서 킬러 유형 접근이 안정적입니다. 개념 간 연결이 탄탄합니다." },
-            { id:"f2", date:"2026-07-31", category:"과제 수행", rating:"good",
-              content:"내신 범위 과제를 성실히 제출했고 오답 분석이 꼼꼼합니다." },
+            { id:"f1", termId:"t1", date:"2026-04-07", category:"모의고사", rating:"great", content:"킬러 유형 접근이 안정적입니다. 개념 간 연결이 탄탄합니다." },
+            { id:"f2", termId:"t1", date:"2026-04-01", category:"과제 수행", rating:"good", content:"내신 범위 과제를 성실히 제출했고 오답 분석이 꼼꼼합니다." },
           ] },
-        { id:"st2", name:"이지우", code:"", homeworkRate:78, attendanceRate:96, summary:"",
+        { id:"st2", name:"이지우", code:"", homeworkRate:78, attendanceRate:96,
+          termNotes:{ t1:"성실하게 참여하나 화학 반응 계산에서 실수가 반복됩니다. 유형별 반복 훈련으로 정확도를 끌어올리는 중입니다." },
           feedbacks:[
-            { id:"f3", date:"2026-08-07", category:"오답 관리", rating:"cheer",
-              content:"화학 반응 계산에서 실수가 반복됩니다. 유형별 반복 훈련을 권장합니다." },
+            { id:"f3", termId:"t1", date:"2026-04-07", category:"오답 관리", rating:"cheer", content:"화학 반응 계산에서 실수가 반복됩니다. 유형별 반복 훈련을 권장합니다." },
           ] },
       ],
     },
@@ -169,10 +172,10 @@ const initialAppData = {
         { id:"sc4", date:"8/15", day:"금", content:"고난도 역학 문항 풀이", homework:"프린트 B" },
       ],
       students: [
-        { id:"st3", name:"박도윤", code:"", homeworkRate:88, attendanceRate:100, summary:"",
+        { id:"st3", name:"박도윤", code:"", homeworkRate:88, attendanceRate:100,
+          termNotes:{ t1:"고난도 문항의 조건 분석이 정확하고 논리 전개가 우수합니다." },
           feedbacks:[
-            { id:"f4", date:"2026-08-08", category:"개념 이해", rating:"great",
-              content:"고난도 문항의 조건 분석이 정확합니다. 서술형 논리 전개가 우수합니다." },
+            { id:"f4", termId:"t1", date:"2026-04-08", category:"개념 이해", rating:"great", content:"고난도 문항의 조건 분석이 정확합니다. 서술형 논리 전개가 우수합니다." },
           ] },
       ],
     },
@@ -189,6 +192,26 @@ const fmtKDate = (iso) => {
   const [y,m,d] = iso.split("-");
   return `${y}. ${parseInt(m,10)}. ${parseInt(d,10)}`;
 };
+
+/* 기간(학기) 정규화 — 예전 데이터도 안전하게 열림 */
+function normalize(d){
+  const data = clone(d);
+  if(!Array.isArray(data.terms) || data.terms.length===0){
+    data.terms = [{ id:"t_base", label:"기본 기간" }];
+  }
+  const ids = data.terms.map(t=>t.id);
+  if(!data.currentTermId || !ids.includes(data.currentTermId)){
+    data.currentTermId = data.terms[data.terms.length-1].id;
+  }
+  const firstId = data.terms[0].id;
+  Object.values(data.classes||{}).forEach(cls=>{
+    (cls.students||[]).forEach(st=>{
+      if(!st.termNotes || typeof st.termNotes!=="object") st.termNotes = {};
+      (st.feedbacks||[]).forEach(f=>{ if(!f.termId) f.termId = firstId; });
+    });
+  });
+  return data;
+}
 
 /* ── 작은 공용 컴포넌트 ── */
 function Sprout({ className="w-6 h-6" }){
@@ -319,106 +342,66 @@ function GrowthTimeline({ feedbacks, ratings }){
 }
 
 /* ────────────────────────────────────────────────
-   [학부모] 학생 리포트
+   [학부모] 포트폴리오 (기간별)
    ──────────────────────────────────────────────── */
-function StudentReport({ data, cls, student }){
-  const captureRef = useRef(null);
-
-  const recent = useMemo(()=>{
-    const s=[...student.feedbacks].sort((a,b)=> (a.date<b.date?1:-1));
-    return s[0];
-  },[student]);
-
-  const handleSave = () => {
-    const el = captureRef.current;
-    if(!el || !window.html2canvas) return;
-    window.html2canvas(el, { backgroundColor:"#f4f7f3", scale:2.5, useCORS:true, logging:false })
-      .then(canvas=>{
-        const link=document.createElement("a");
-        link.download=`${student.name}_성장기록_${todayISO()}.png`;
-        link.href=canvas.toDataURL("image/png");
-        link.click();
-      })
-      .catch(()=> alert("이미지 저장에 실패했어요. 다시 시도해 주세요."));
-  };
-
+function SummaryCard({ cls, student }){
   return (
-    <div className="fade-up">
-      {/* 저장 버튼 */}
-      <div className="flex justify-end gap-2 mb-3 no-print">
-        <button onClick={handleSave}
-          className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">
-          이미지로 저장
-        </button>
-        <button onClick={()=>window.print()}
-          className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">
-          인쇄
-        </button>
+    <div className="bg-white rounded-2xl border border-line shadow-card p-6 md:p-7 relative overflow-hidden">
+      <div className="absolute left-0 top-0 h-1.5 w-full bg-sprout" />
+      <div className="flex items-center gap-2 mb-1">
+        <Chip tone="sprout">{cls.name}</Chip>
+        <span className="font-gaegu text-muted text-sm">누적 기록 {student.feedbacks.length}건</span>
       </div>
-
-      <div ref={captureRef} className="space-y-5">
-        {/* 요약 카드 */}
-        <div className="bg-white rounded-2xl border border-line shadow-card p-6 md:p-7 relative overflow-hidden">
-          <div className="absolute left-0 top-0 h-1.5 w-full bg-sprout" />
-          <div className="relative">
-            <div className="flex items-center gap-2 mb-1">
-              <Chip tone="sprout">{cls.name}</Chip>
-              <span className="font-gaegu text-muted text-sm">성장 기록 · {student.feedbacks.length}개</span>
-            </div>
-            <h2 className="font-jua text-3xl text-ink">
-              {student.name} <span className="text-lg text-muted font-noto font-normal">학생</span>
-            </h2>
-
-            {(student.summary || recent) && (
-              <div className="mt-4 bg-sprout-soft/70 rounded-2xl p-4 border border-sprout-ring">
-                <p className="font-gaegu text-sprout-deep text-sm mb-1">선생님 한마디 </p>
-                <p className="text-ink leading-relaxed">
-                  {student.summary || recent.content}
-                </p>
-              </div>
-            )}
-
-            <div className="grid sm:grid-cols-2 gap-4 mt-5">
-              <Meter label="과제 수행률" value={student.homeworkRate} />
-              <Meter label="출석률" value={student.attendanceRate} />
-            </div>
-          </div>
-        </div>
-
-        {/* 성장 타임라인 */}
-        <div className="bg-white rounded-2xl border border-line shadow-card p-6 md:p-7">
-          <h3 className="font-jua text-xl text-ink mb-5 flex items-center gap-2">
-            <span className="w-1.5 h-4 bg-sprout rounded-sm" />평가 기록
-          </h3>
-          <GrowthTimeline feedbacks={student.feedbacks} ratings={data.ratings} />
-        </div>
+      <h2 className="font-jua text-3xl text-ink">
+        {student.name} <span className="text-lg text-muted font-noto font-normal">학생</span>
+      </h2>
+      <div className="grid sm:grid-cols-2 gap-4 mt-5">
+        <Meter label="과제 수행률" value={student.homeworkRate} />
+        <Meter label="출석률" value={student.attendanceRate} />
       </div>
     </div>
   );
 }
 
-/* ────────────────────────────────────────────────
-   [학부모] 메인 뷰 (반 선택 → 학생 선택 → 코드 → 리포트)
-   ──────────────────────────────────────────────── */
+function TermSection({ student, ratings, term }){
+  const note = (student.termNotes||{})[term.id] || "";
+  const fbs = (student.feedbacks||[]).filter(f=> (f.termId||"")===term.id);
+  if(!note && fbs.length===0) return null;
+  return (
+    <div className="bg-white rounded-2xl border border-line shadow-card p-6 md:p-7">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="w-1.5 h-5 bg-sprout rounded-sm" />
+        <h3 className="font-jua text-xl text-ink">{term.label}</h3>
+      </div>
+      {note && (
+        <div className="mb-5 bg-sprout-soft/70 rounded-2xl p-4 border border-sprout-ring">
+          <p className="font-gaegu text-sprout-deep text-sm mb-1">선생님 종합 기록</p>
+          <p className="text-ink leading-relaxed whitespace-pre-line">{note}</p>
+        </div>
+      )}
+      {fbs.length>0 && <GrowthTimeline feedbacks={fbs} ratings={ratings} />}
+    </div>
+  );
+}
+
 function ParentView({ data }){
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
-  const [match, setMatch] = useState(null);   // { classId, studentId }
+  const [match, setMatch] = useState(null);      // { classId, studentId }
+  const [termView, setTermView] = useState("current");   // "current" | "all" | termId
+  const captureRef = useRef(null);
 
-  // 코드로 학생 찾기 (전체 반 대상 · 이름 목록 노출 없음)
   const lookup = () => {
     const c = code.trim();
     if(!c){ setErr("코드를 입력해 주세요."); return; }
     for(const [classId, cls] of Object.entries(data.classes)){
-      const student = cls.students.find(s => (s.code||"").trim() !== "" && (s.code||"").trim() === c);
-      if(student){ setMatch({ classId, studentId:student.id }); setErr(""); setCode(""); return; }
+      const st = cls.students.find(s => (s.code||"").trim()!=="" && (s.code||"").trim()===c);
+      if(st){ setMatch({classId, studentId:st.id}); setErr(""); setCode(""); setTermView("current"); return; }
     }
     setErr("일치하는 코드가 없어요. 선생님께 받으신 코드를 확인해 주세요.");
   };
-
   const reset = () => { setMatch(null); setErr(""); setCode(""); };
 
-  // 현재 학생은 항상 최신 data에서 조회 (실시간 반영, 삭제 시 안전)
   const cls = match ? data.classes[match.classId] : null;
   const student = cls ? cls.students.find(s=>s.id===match.studentId) : null;
 
@@ -429,7 +412,7 @@ function ParentView({ data }){
         <div className="bg-white rounded-2xl border border-line shadow-card p-7 text-center pop">
           <h2 className="font-jua text-xl text-ink mb-2">학생 코드로 조회</h2>
           <p className="text-muted text-sm leading-relaxed mb-5">
-            선생님께 받으신 학생 코드를 입력하시면<br/>자녀의 학습 기록을 확인하실 수 있어요.
+            선생님께 받으신 학생 코드를 입력하시면<br/>자녀의 학습 포트폴리오를 확인하실 수 있어요.
           </p>
           <div className="flex gap-2 max-w-xs mx-auto">
             <input value={code} onChange={e=>{ setCode(e.target.value); setErr(""); }}
@@ -445,14 +428,31 @@ function ParentView({ data }){
     );
   }
 
-  // ── 리포트 화면 ──
+  const terms = data.terms || [];
+  const orderedDesc = [...terms].reverse();                 // 최신 먼저
+  const activeTermId = termView==="all" ? null : (termView==="current" ? data.currentTermId : termView);
+  const shownTerms = termView==="all" ? orderedDesc : terms.filter(t=>t.id===activeTermId);
+
+  const tabCls = (on) => `px-4 py-2 rounded-full text-sm font-bold border transition ${on ? "bg-sprout text-white border-sprout shadow-card" : "bg-white text-muted border-line hover:border-sprout-ring"}`;
+
+  const handleSave = () => {
+    const el = captureRef.current;
+    if(!el || !window.html2canvas) return;
+    const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
+    window.html2canvas(el, { backgroundColor:bg, scale:2.5, useCORS:true, logging:false })
+      .then(canvas=>{ const a=document.createElement("a"); a.download=`${student.name}_포트폴리오_${todayISO()}.png`; a.href=canvas.toDataURL("image/png"); a.click(); })
+      .catch(()=> alert("이미지 저장에 실패했어요. 다시 시도해 주세요."));
+  };
+
   return (
-    <div className="max-w-2xl mx-auto px-4 pb-24">
-      <div className="flex justify-end mb-3 no-print">
-        <button onClick={reset}
-          className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">
-          다른 코드로 조회
-        </button>
+    <div className="max-w-2xl mx-auto px-4 pb-24 fade-up">
+      {/* 상단 버튼 */}
+      <div className="flex justify-between items-center gap-2 mb-3 no-print">
+        <button onClick={reset} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">다른 코드로 조회</button>
+        <div className="flex gap-2">
+          <button onClick={handleSave} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">이미지로 저장</button>
+          <button onClick={()=>window.print()} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">인쇄</button>
+        </div>
       </div>
 
       {/* 공지 */}
@@ -470,7 +470,23 @@ function ParentView({ data }){
         </div>
       )}
 
-      <StudentReport data={data} cls={cls} student={student} />
+      {/* 기간 탭 */}
+      <div className="flex flex-wrap gap-2 mb-4 no-print">
+        <button onClick={()=>setTermView("all")} className={tabCls(termView==="all")}>전체 포트폴리오</button>
+        {orderedDesc.map(t=>(
+          <button key={t.id} onClick={()=>setTermView(t.id)} className={tabCls(termView!=="all" && activeTermId===t.id)}>{t.label}</button>
+        ))}
+      </div>
+
+      <div ref={captureRef} className="space-y-5">
+        <SummaryCard cls={cls} student={student} />
+        {shownTerms.map(t=> <TermSection key={t.id} student={student} ratings={data.ratings} term={t} />)}
+        {shownTerms.filter(t=>((student.termNotes||{})[t.id]) || (student.feedbacks||[]).some(f=>(f.termId||"")===t.id)).length===0 && (
+          <div className="bg-white rounded-2xl border border-line shadow-card p-8 text-center text-muted font-gaegu">
+            아직 이 기간의 기록이 없어요.
+          </div>
+        )}
+      </div>
 
       {/* 수업 일정 */}
       {(cls.schedule||[]).length>0 && (
@@ -481,8 +497,7 @@ function ParentView({ data }){
               const isToday = row.date===todayMD();
               return (
                 <div key={row.id}
-                  className={`flex items-center gap-3 rounded-xl px-4 py-3 border
-                    ${isToday ? "bg-sprout-soft border-sprout-ring" : "bg-paper border-line"}`}>
+                  className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${isToday ? "bg-sprout-soft border-sprout-ring" : "bg-paper border-line"}`}>
                   <span className="font-jua text-sprout-deep w-16 shrink-0">
                     {row.date}<span className="text-muted text-xs font-noto"> ({row.day})</span>
                   </span>
@@ -529,71 +544,80 @@ function AdminLogin({ password, onOk }){
 /* 공용 인풋 스타일 */
 const inputCls = "w-full px-3 py-2.5 rounded-xl border border-line bg-paper focus:border-sprout-ring focus:bg-white transition";
 
-/* ── 피드백 관리 ── */
+/* ── 기록 관리 (기간별) ── */
 function FeedbackManager({ data, setData, classId }){
   const cls = data.classes[classId];
   const [studentId, setStudentId] = useState(cls.students[0]?.id || "");
+  const [termId, setTermId] = useState(data.currentTermId || (data.terms[0] && data.terms[0].id));
   const blank = { date:todayISO(), category:data.categories[0], rating:"good", content:"" };
   const [form, setForm] = useState(blank);
   const [editId, setEditId] = useState(null);
 
   const student = cls.students.find(s=>s.id===studentId);
-
   const resetForm = () => { setForm({...blank, date:todayISO()}); setEditId(null); };
 
   const save = () => {
     if(!student) return;
-    if(!form.content.trim()){ alert("피드백 내용을 입력해 주세요."); return; }
+    if(!form.content.trim()){ alert("기록 내용을 입력해 주세요."); return; }
     setData(prev=>{
       const d=clone(prev);
       const st=d.classes[classId].students.find(s=>s.id===studentId);
-      if(editId){
-        const t=st.feedbacks.find(f=>f.id===editId);
-        Object.assign(t, form);
-      } else {
-        st.feedbacks.push({ id:uid(), ...form });
-      }
+      if(editId){ const t=st.feedbacks.find(f=>f.id===editId); Object.assign(t, form, {termId}); }
+      else { st.feedbacks.push({ id:uid(), termId, ...form }); }
       return d;
     });
     resetForm();
   };
-
-  const startEdit = (f) => { setForm({date:f.date,category:f.category,rating:f.rating,content:f.content}); setEditId(f.id); };
+  const startEdit = (f) => { setForm({date:f.date,category:f.category,rating:f.rating,content:f.content}); setEditId(f.id); if(f.termId) setTermId(f.termId); };
   const remove = (fid) => {
-    if(!confirm("이 피드백을 삭제할까요?")) return;
-    setData(prev=>{
-      const d=clone(prev);
-      const st=d.classes[classId].students.find(s=>s.id===studentId);
-      st.feedbacks=st.feedbacks.filter(f=>f.id!==fid);
-      return d;
-    });
+    if(!confirm("이 기록을 삭제할까요?")) return;
+    setData(prev=>{ const d=clone(prev); const st=d.classes[classId].students.find(s=>s.id===studentId); st.feedbacks=st.feedbacks.filter(f=>f.id!==fid); return d; });
     if(editId===fid) resetForm();
   };
+  const setNote = (v) => setData(prev=>{ const d=clone(prev); const st=d.classes[classId].students.find(s=>s.id===studentId); if(!st.termNotes) st.termNotes={}; st.termNotes[termId]=v; return d; });
 
-  const list = student ? [...student.feedbacks].sort((a,b)=> (a.date<b.date?1:-1)) : [];
+  const list = student ? student.feedbacks.filter(f=>(f.termId||"")===termId).sort((a,b)=> (a.date<b.date?1:-1)) : [];
+  const note = student ? ((student.termNotes||{})[termId]||"") : "";
+  const curTerm = data.terms.find(t=>t.id===termId);
 
   return (
     <div>
+      {/* 기간 선택 */}
+      <div className="mb-4">
+        <label className="text-xs text-muted font-bold block mb-1">기간</label>
+        <select value={termId} onChange={e=>{ setTermId(e.target.value); resetForm(); }} className={inputCls}>
+          {data.terms.map(t=><option key={t.id} value={t.id}>{t.label}{t.id===data.currentTermId?" (현재)":""}</option>)}
+        </select>
+      </div>
+
       {/* 학생 선택 */}
       <div className="flex flex-wrap gap-2 mb-5">
-        {cls.students.map(s=>(
-          <button key={s.id} onClick={()=>{ setStudentId(s.id); resetForm(); }}
-            className={`px-3.5 py-2 rounded-xl text-sm font-bold border transition
-              ${studentId===s.id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line hover:border-sprout-ring"}`}>
-            {s.name}
-            <span className="ml-1.5 text-xs opacity-70">{s.feedbacks.length}</span>
-          </button>
-        ))}
+        {cls.students.map(s=>{
+          const cnt = s.feedbacks.filter(f=>(f.termId||"")===termId).length;
+          return (
+            <button key={s.id} onClick={()=>{ setStudentId(s.id); resetForm(); }}
+              className={`px-3.5 py-2 rounded-xl text-sm font-bold border transition ${studentId===s.id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line hover:border-sprout-ring"}`}>
+              {s.name}<span className="ml-1.5 text-xs opacity-70">{cnt}</span>
+            </button>
+          );
+        })}
         {cls.students.length===0 && <p className="text-muted text-sm">[학생 관리]에서 학생을 먼저 추가해 주세요.</p>}
       </div>
 
       {student && (
         <>
-          {/* 입력 폼 */}
+          {/* 자연어 종합 기록 */}
           <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5">
-            <p className="font-jua text-lg text-ink mb-4">
-              {editId ? "피드백 수정" : `${student.name} 학생에게 피드백 남기기`} 
-            </p>
+            <p className="font-jua text-lg text-ink mb-1">{curTerm ? curTerm.label : ""} · 종합 기록</p>
+            <p className="text-xs text-muted mb-3">학부모님께 보여줄 자연어 기록이에요. 포트폴리오처럼 이 기간의 성장·성취를 문장으로 남겨보세요.</p>
+            <textarea value={note} onChange={e=>setNote(e.target.value)} rows="4"
+              placeholder={`예) 이번 ${curTerm?curTerm.label:'기간'} 동안 ${student.name} 학생은 ...`}
+              className={inputCls+" resize-y leading-relaxed"} />
+          </div>
+
+          {/* 개별 기록 입력 */}
+          <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5">
+            <p className="font-jua text-lg text-ink mb-4">{editId ? "개별 기록 수정" : "개별 기록 추가"}</p>
             <div className="grid sm:grid-cols-3 gap-3 mb-3">
               <div>
                 <label className="text-xs text-muted font-bold">날짜</label>
@@ -608,30 +632,21 @@ function FeedbackManager({ data, setData, classId }){
               <div>
                 <label className="text-xs text-muted font-bold">평가</label>
                 <select value={form.rating} onChange={e=>setForm({...form,rating:e.target.value})} className={inputCls}>
-                  {data.ratings.map(r=><option key={r.key} value={r.key}>{r.label}</option>)}
+                  {data.ratings.map(r=><option key={r.key} value={r.key}>{r.emoji} {r.label}</option>)}
                 </select>
               </div>
             </div>
             <textarea value={form.content} onChange={e=>setForm({...form,content:e.target.value})}
-              rows="3" placeholder="학부모님께 전달할 내용을 적어주세요."
-              className={inputCls+" resize-y"} />
+              rows="3" placeholder="구체적인 관찰 내용을 적어주세요." className={inputCls+" resize-y"} />
             <div className="flex gap-2 mt-3">
-              <button onClick={save}
-                className="px-5 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">
-                {editId ? "수정 저장" : "추가하기"}
-              </button>
-              {editId && (
-                <button onClick={resetForm}
-                  className="px-4 py-2.5 rounded-xl bg-white border border-line text-muted font-bold hover:border-sprout-ring transition">
-                  취소
-                </button>
-              )}
+              <button onClick={save} className="px-5 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">{editId ? "수정 저장" : "추가하기"}</button>
+              {editId && <button onClick={resetForm} className="px-4 py-2.5 rounded-xl bg-white border border-line text-muted font-bold hover:border-sprout-ring transition">취소</button>}
             </div>
           </div>
 
-          {/* 목록 */}
+          {/* 개별 기록 목록 */}
           <div className="space-y-3">
-            {list.length===0 && <p className="text-muted text-sm text-center py-6">아직 피드백이 없어요.</p>}
+            {list.length===0 && <p className="text-muted text-sm text-center py-6">이 기간에는 개별 기록이 없어요.</p>}
             {list.map(f=>{
               const rt=data.ratings.find(r=>r.key===f.rating)||{emoji:"",label:""};
               return (
@@ -640,7 +655,7 @@ function FeedbackManager({ data, setData, classId }){
                     <div className="flex items-center gap-2 flex-wrap mb-1.5">
                       <span className="font-gaegu text-muted text-sm">{fmtKDate(f.date)}</span>
                       <Chip tone={catTone(f.category)}>{f.category}</Chip>
-                      <Chip tone={ratingTone(f.rating)}>{rt.label}</Chip>
+                      <Chip tone={ratingTone(f.rating)}>{rt.emoji} {rt.label}</Chip>
                     </div>
                     <p className="text-ink text-sm leading-relaxed">{f.content}</p>
                   </div>
@@ -859,6 +874,51 @@ function DataManager({ data, setData }){
   );
 }
 
+/* ── 기간 관리 ── */
+function TermManager({ data, setData }){
+  const [label, setLabel] = useState("");
+  const add = () => { if(!label.trim())return; setData(prev=>{ const d=clone(prev); if(!d.terms)d.terms=[]; d.terms.push({id:uid(), label:label.trim()}); d.currentTermId=d.terms[d.terms.length-1].id; return d; }); setLabel(""); };
+  const rename = (id,v) => setData(prev=>{ const d=clone(prev); const t=d.terms.find(x=>x.id===id); if(t)t.label=v; return d; });
+  const setCurrent = (id) => setData(prev=>{ const d=clone(prev); d.currentTermId=id; return d; });
+  const move = (id,dir) => setData(prev=>{ const d=clone(prev); const i=d.terms.findIndex(x=>x.id===id); const j=i+dir; if(j<0||j>=d.terms.length)return d; const tmp=d.terms[i]; d.terms[i]=d.terms[j]; d.terms[j]=tmp; return d; });
+  const remove = (id) => {
+    if(data.terms.length<=1){ alert("최소 1개의 기간은 있어야 해요."); return; }
+    if(!confirm("이 기간을 삭제할까요? 이 기간의 개별 기록과 종합 기록도 함께 지워집니다.")) return;
+    setData(prev=>{ const d=clone(prev);
+      d.terms=d.terms.filter(t=>t.id!==id);
+      Object.values(d.classes).forEach(cls=>cls.students.forEach(st=>{
+        st.feedbacks=(st.feedbacks||[]).filter(f=>f.termId!==id);
+        if(st.termNotes) delete st.termNotes[id];
+      }));
+      if(d.currentTermId===id) d.currentTermId=d.terms[d.terms.length-1].id;
+      return d;
+    });
+  };
+  return (
+    <div>
+      <div className="bg-white rounded-2xl border border-line p-4 mb-5 flex gap-2">
+        <input value={label} onChange={e=>setLabel(e.target.value)} onKeyDown={e=> e.key==="Enter" && add()}
+          placeholder="예: 2026 2학기 중간고사" className={inputCls} />
+        <button onClick={add} className="px-5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition whitespace-nowrap">추가</button>
+      </div>
+      <p className="text-xs text-muted mb-3">'현재'로 지정한 기간에 새 기록이 기본 저장되고, 학부모 화면에서도 그 기간이 먼저 열려요. ▲▼로 순서를 바꿀 수 있어요.</p>
+      <div className="space-y-2">
+        {(data.terms||[]).map((t)=>(
+          <div key={t.id} className="bg-white rounded-2xl border border-line p-3 flex items-center gap-2">
+            <input value={t.label} onChange={e=>rename(t.id,e.target.value)} className="flex-1 bg-transparent font-bold text-ink text-sm min-w-0" />
+            {data.currentTermId===t.id
+              ? <Chip tone="sprout">현재</Chip>
+              : <button onClick={()=>setCurrent(t.id)} className="text-xs font-bold text-sprout-deep hover:underline shrink-0">현재로</button>}
+            <button onClick={()=>move(t.id,-1)} className="text-sm text-muted hover:text-ink shrink-0 px-1">▲</button>
+            <button onClick={()=>move(t.id,1)} className="text-sm text-muted hover:text-ink shrink-0 px-1">▼</button>
+            <button onClick={()=>remove(t.id)} className="text-xs font-bold text-coral hover:underline shrink-0">삭제</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── 관리자 패널 ── */
 function AdminPanel({ data, setData, saveState }){
   const classIds = Object.keys(data.classes);
@@ -866,13 +926,14 @@ function AdminPanel({ data, setData, saveState }){
   const [tab, setTab] = useState("feedback");
 
   const tabs = [
-    ["feedback","피드백 관리"],
+    ["feedback","기록 관리"],
+    ["terms","기간 관리"],
     ["students","학생 관리"],
     ["notices","공지 관리"],
     ["schedule","일정 관리"],
     ["data","데이터·설정"],
   ];
-  const perClass = tab!=="data";
+  const perClass = tab==="feedback" || tab==="students" || tab==="notices" || tab==="schedule";
 
   const saveBadge = {
     saving: { t:"저장 중…", c:"bg-sun-soft text-[#a9781a]" },
@@ -882,29 +943,23 @@ function AdminPanel({ data, setData, saveState }){
 
   return (
     <div className="max-w-3xl mx-auto px-4 pb-24 fade-up">
-      {/* 탭 + 저장 상태 */}
       <div className="flex flex-wrap items-center gap-2 mb-4 no-print">
         {tabs.map(([k,label])=>(
           <button key={k} onClick={()=>setTab(k)}
-            className={`px-4 py-2 rounded-full text-sm font-bold border transition
-              ${tab===k ? "bg-ink text-white border-ink" : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
+            className={`px-4 py-2 rounded-full text-sm font-bold border transition ${tab===k ? "bg-ink text-white border-ink" : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
             {label}
           </button>
         ))}
         {saveBadge && (
-          <span className={`ml-auto text-xs font-bold px-3 py-1.5 rounded-full ${saveBadge.c}`}>
-            {saveBadge.t}
-          </span>
+          <span className={`ml-auto text-xs font-bold px-3 py-1.5 rounded-full ${saveBadge.c}`}>{saveBadge.t}</span>
         )}
       </div>
 
-      {/* 반 선택 */}
       {perClass && classIds.length>1 && (
         <div className="flex flex-wrap gap-2 mb-4">
           {classIds.map(id=>(
             <button key={id} onClick={()=>setClassId(id)}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition
-                ${classId===id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line"}`}>
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${classId===id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line"}`}>
               {data.classes[id].name}
             </button>
           ))}
@@ -913,6 +968,7 @@ function AdminPanel({ data, setData, saveState }){
 
       <div className="bg-paper/40 rounded-2xl p-1">
         {tab==="feedback" && <FeedbackManager key={classId} data={data} setData={setData} classId={classId} />}
+        {tab==="terms"    && <TermManager data={data} setData={setData} />}
         {tab==="students" && <StudentManager  key={classId} data={data} setData={setData} classId={classId} />}
         {tab==="notices"  && <NoticeManager   key={classId} data={data} setData={setData} classId={classId} />}
         {tab==="schedule" && <ScheduleManager key={classId} data={data} setData={setData} classId={classId} />}
@@ -1008,8 +1064,8 @@ function SeedScreen({ onSeed }){
    ════════════════════════════════════════════════ */
 function App(){
   const [data, setData]         = useState(null);
-  const [status, setStatus]     = useState("init");    // init|noconfig|connecting|ready|empty|error
-  const [saveState, setSaveState] = useState(null);    // null|saving|saved|error
+  const [status, setStatus]     = useState("init");
+  const [saveState, setSaveState] = useState(null);
   const [mode, setMode]         = useState("parent");
   const [authed, setAuthed]     = useState(false);
 
@@ -1017,7 +1073,6 @@ function App(){
   const localJson   = useRef("");
   const saveTimer   = useRef(null);
 
-  // Firebase 초기화 + 실시간 구독
   useEffect(()=>{
     if(!isConfigured()){ setStatus("noconfig"); return; }
     try{
@@ -1028,16 +1083,12 @@ function App(){
       const unsub = ref.onSnapshot(
         (snap)=>{
           if(snap.exists){
-            const remote = snap.data();
-            const rjson = JSON.stringify(remote);
-            if(rjson !== localJson.current){   // 내 저장의 메아리는 무시
-              localJson.current = rjson;
-              setData(remote);
-            }
+            const norm = normalize(snap.data());
+            const njson = JSON.stringify(norm);
+            if(njson !== localJson.current){ localJson.current = njson; setData(norm); }
             setStatus("ready");
           } else {
-            setData(null);
-            setStatus("empty");
+            setData(null); setStatus("empty");
           }
         },
         (err)=>{ console.error(err); setStatus("error"); }
@@ -1046,7 +1097,6 @@ function App(){
     }catch(e){ console.error(e); setStatus("error"); }
   },[]);
 
-  // 디바운스 저장
   const scheduleSave = (next)=>{
     if(!dbRef.current) return;
     setSaveState("saving");
@@ -1058,7 +1108,6 @@ function App(){
     }, 600);
   };
 
-  // 관리자 편집 → 로컬 즉시 반영 + 자동 저장
   const updateData = (updater)=>{
     setData(prev=>{
       const next = typeof updater === "function" ? updater(prev) : updater;
@@ -1066,19 +1115,16 @@ function App(){
       scheduleSave(next);
       return next;
     });
-    if(status==="empty") setStatus("ready");
   };
 
   const seed = ()=>{
-    localJson.current = JSON.stringify(initialAppData);
-    setData(initialAppData);
-    setStatus("ready");
-    scheduleSave(initialAppData);
+    const nd = normalize(initialAppData);
+    localJson.current = JSON.stringify(nd);
+    setData(nd); setStatus("ready"); scheduleSave(nd);
   };
 
   const toggleAdmin = ()=> setMode(m=> m==="admin" ? "parent" : "admin");
 
-  // ── 렌더 ──
   if(status==="noconfig") return <SetupScreen />;
   if(status==="error")    return <ErrorScreen />;
   if(status==="init" || status==="connecting") return <LoadingScreen />;
@@ -1102,7 +1148,7 @@ function App(){
       )}
 
       <footer className="text-center text-muted text-xs pb-10 pt-6 no-print">
-        <p className="font-gaegu text-sm"> {headerData.brandName} · 내신·모의고사 학습 관리</p>
+        <p className="font-gaegu text-sm">{headerData.brandName}</p>
       </footer>
     </div>
   );
