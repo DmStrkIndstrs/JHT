@@ -14,6 +14,8 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <!-- html2canvas (리포트 이미지 저장용) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- jsPDF (PDF 내보내기용) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <!-- Firebase (compat) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -211,6 +213,114 @@ function normalize(d){
     });
   });
   return data;
+}
+
+/* ── 내보내기 (텍스트 / PDF 포트폴리오) ── */
+function ratingLabelOf(data, key){
+  const r = (data.ratings||[]).find(x=>x.key===key);
+  if(!r) return "";
+  return (r.emoji ? r.emoji+" " : "") + r.label;
+}
+
+function buildReportText(data, cls, student, terms){
+  const L = [];
+  L.push(`[${data.brandName}] ${student.name} 학생 학습 포트폴리오`);
+  L.push(`반: ${cls.name}`);
+  L.push(`과제 수행률: ${student.homeworkRate}%  /  출석률: ${student.attendanceRate}%`);
+  L.push(`생성일: ${todayISO()}`);
+  L.push("");
+  (terms||[]).forEach(term=>{
+    const note = (student.termNotes||{})[term.id] || "";
+    const fbs = (student.feedbacks||[]).filter(f=>(f.termId||"")===term.id).sort((a,b)=>(a.date<b.date?1:-1));
+    if(!note && fbs.length===0) return;
+    L.push("========================================");
+    L.push(`■ ${term.label}`);
+    L.push("");
+    if(note){ L.push("[종합 기록]"); L.push(note); L.push(""); }
+    if(fbs.length){
+      L.push("[개별 기록]");
+      fbs.forEach(f=>{
+        L.push(`- ${fmtKDate(f.date)} (${f.category} · ${ratingLabelOf(data,f.rating)})`);
+        L.push(`  ${f.content}`);
+      });
+      L.push("");
+    }
+  });
+  return L.join("\n");
+}
+
+function downloadText(filename, text){
+  const blob = new Blob([text], {type:"text/plain;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportStudentText(data, cls, student, terms){
+  const has = (terms||[]).some(t=> ((student.termNotes||{})[t.id]) || (student.feedbacks||[]).some(f=>(f.termId||"")===t.id));
+  if(!has){ alert("내보낼 기록이 없어요."); return; }
+  downloadText(`${student.name}_포트폴리오_${todayISO()}.txt`, buildReportText(data, cls, student, terms));
+}
+
+function buildReportElement(data, cls, student, terms){
+  const esc = (s)=> String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:fixed; left:-99999px; top:0; width:760px; background:#ffffff; padding:44px; box-sizing:border-box; font-family:'Noto Sans KR',sans-serif; color:#1f2937;";
+  let html = "";
+  html += `<div style="border-bottom:3px solid #111827; padding-bottom:14px; margin-bottom:22px;">
+    <div style="font-size:13px; color:#6b7280; letter-spacing:1px;">${esc(data.brandName)}</div>
+    <div style="font-size:26px; font-weight:800; margin-top:4px; color:#111827;">${esc(student.name)} 학생 학습 포트폴리오</div>
+    <div style="font-size:13px; color:#6b7280; margin-top:8px;">${esc(cls.name)} · 과제 수행률 ${esc(student.homeworkRate)}% · 출석률 ${esc(student.attendanceRate)}% · 생성일 ${esc(todayISO())}</div>
+  </div>`;
+  (terms||[]).forEach(term=>{
+    const note = (student.termNotes||{})[term.id] || "";
+    const fbs = (student.feedbacks||[]).filter(f=>(f.termId||"")===term.id).sort((a,b)=>(a.date<b.date?1:-1));
+    if(!note && fbs.length===0) return;
+    html += `<div style="margin-bottom:26px;">
+      <div style="font-size:18px; font-weight:800; color:#111827; border-left:5px solid #111827; padding-left:11px; margin-bottom:13px;">${esc(term.label)}</div>`;
+    if(note){
+      html += `<div style="background:#f3f4f6; border-radius:10px; padding:14px 16px; margin-bottom:12px; white-space:pre-line; line-height:1.7; font-size:14px;">${esc(note)}</div>`;
+    }
+    fbs.forEach(f=>{
+      html += `<div style="border:1px solid #e5e7eb; border-radius:10px; padding:11px 14px; margin-bottom:8px;">
+        <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">${esc(fmtKDate(f.date))} · ${esc(f.category)} · ${esc(ratingLabelOf(data,f.rating))}</div>
+        <div style="font-size:14px; line-height:1.6;">${esc(f.content)}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  html += `<div style="text-align:center; color:#9ca3af; font-size:12px; margin-top:28px; border-top:1px solid #e5e7eb; padding-top:14px;">${esc(data.brandName)} · 학습 포트폴리오</div>`;
+  wrap.innerHTML = html;
+  return wrap;
+}
+
+function exportStudentPDF(data, cls, student, terms){
+  const has = (terms||[]).some(t=> ((student.termNotes||{})[t.id]) || (student.feedbacks||[]).some(f=>(f.termId||"")===t.id));
+  if(!has){ alert("내보낼 기록이 없어요."); return; }
+  if(!window.html2canvas || !window.jspdf){ alert("PDF 모듈을 불러오지 못했어요. 새로고침 후 다시 시도해 주세요."); return; }
+  const el = buildReportElement(data, cls, student, terms);
+  document.body.appendChild(el);
+  window.html2canvas(el, { backgroundColor:"#ffffff", scale:2, useCORS:true, logging:false })
+    .then(canvas=>{
+      const jsPDF = window.jspdf.jsPDF;
+      const pdf = new jsPDF("p","mm","a4");
+      const pageW = 210, pageH = 297;
+      const imgW = pageW;
+      const imgH = canvas.height * imgW / canvas.width;
+      const imgData = canvas.toDataURL("image/png");
+      let position = 0, heightLeft = imgH;
+      pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
+      heightLeft -= pageH;
+      while(heightLeft > 0){
+        position -= pageH;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
+        heightLeft -= pageH;
+      }
+      pdf.save(`${student.name}_포트폴리오_${todayISO()}.pdf`);
+    })
+    .catch(e=>{ console.error(e); alert("PDF 생성에 실패했어요. 다시 시도해 주세요."); })
+    .finally(()=>{ document.body.removeChild(el); });
 }
 
 /* ── 작은 공용 컴포넌트 ── */
@@ -446,8 +556,10 @@ function ParentView({ data }){
       {/* 상단 버튼 */}
       <div className="flex justify-between items-center gap-2 mb-3 no-print">
         <button onClick={reset} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">다른 코드로 조회</button>
-        <div className="flex gap-2">
-          <button onClick={handleSave} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">이미지로 저장</button>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <button onClick={()=>exportStudentPDF(data, cls, student, shownTerms)} className="text-xs font-bold px-3 py-2 rounded-full bg-sprout text-white hover:bg-sprout-deep transition">PDF 저장</button>
+          <button onClick={()=>exportStudentText(data, cls, student, shownTerms)} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">텍스트</button>
+          <button onClick={handleSave} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">이미지</button>
           <button onClick={()=>window.print()} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">인쇄</button>
         </div>
       </div>
@@ -603,6 +715,13 @@ function FeedbackManager({ data, setData, classId }){
 
       {student && (
         <>
+          {/* 포트폴리오 내보내기 */}
+          <div className="bg-white rounded-2xl border border-line p-3 mb-5 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-bold text-ink mr-1">{student.name} 전체 포트폴리오</span>
+            <button onClick={()=>exportStudentPDF(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-sprout text-white hover:bg-sprout-deep transition">PDF</button>
+            <button onClick={()=>exportStudentText(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">텍스트</button>
+          </div>
+
           {/* 자연어 종합 기록 */}
           <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5">
             <p className="font-jua text-lg text-ink mb-1">{curTerm ? curTerm.label : ""} · 종합 기록</p>
