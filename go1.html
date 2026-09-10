@@ -801,7 +801,7 @@ function StudentManager({ data, setData, classId }){
     if(!name.trim()) return;
     setData(prev=>{
       const d=clone(prev);
-      d.classes[classId].students.push({ id:uid(), name:name.trim(), code:"", homeworkRate:100, attendanceRate:100, summary:"", feedbacks:[] });
+      d.classes[classId].students.push({ id:uid(), name:name.trim(), code:"", homeworkRate:100, attendanceRate:100, summary:"", termNotes:{}, feedbacks:[] });
       return d;
     });
     setName("");
@@ -993,6 +993,41 @@ function DataManager({ data, setData }){
   );
 }
 
+/* ── 반 관리 ── */
+function ClassManager({ data, setData }){
+  const [name, setName] = useState("");
+  const add = () => {
+    if(!name.trim()) return;
+    setData(prev=>{ const d=clone(prev); d.classes["c_"+uid()] = { name:name.trim(), notices:[], schedule:[], students:[] }; return d; });
+    setName("");
+  };
+  const rename = (id,v) => setData(prev=>{ const d=clone(prev); if(d.classes[id]) d.classes[id].name=v; return d; });
+  const remove = (id) => {
+    if(Object.keys(data.classes).length<=1){ alert("최소 1개의 반은 있어야 해요."); return; }
+    if(!confirm(`'${data.classes[id].name}' 반을 삭제할까요? 이 반의 학생·기록·공지·일정이 모두 함께 지워집니다.`)) return;
+    setData(prev=>{ const d=clone(prev); delete d.classes[id]; return d; });
+  };
+  return (
+    <div>
+      <div className="bg-white rounded-2xl border border-line p-4 mb-5 flex gap-2">
+        <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=> e.key==="Enter" && add()}
+          placeholder="예: 고2 물리 · 중1 과학" className={inputCls} />
+        <button onClick={add} className="px-5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition whitespace-nowrap">추가</button>
+      </div>
+      <p className="text-xs text-muted mb-3">반을 추가하면 학생 관리·기록 관리 등 각 탭에서 바로 선택할 수 있어요.</p>
+      <div className="space-y-2">
+        {Object.entries(data.classes).map(([id,cls])=>(
+          <div key={id} className="bg-white rounded-2xl border border-line p-3 flex items-center gap-2">
+            <input value={cls.name} onChange={e=>rename(id,e.target.value)} className="flex-1 bg-transparent font-bold text-ink text-sm min-w-0" />
+            <span className="text-xs text-muted shrink-0">학생 {cls.students.length}명</span>
+            <button onClick={()=>remove(id)} className="text-xs font-bold text-coral hover:underline shrink-0">삭제</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── 기간 관리 ── */
 function TermManager({ data, setData }){
   const [label, setLabel] = useState("");
@@ -1043,9 +1078,11 @@ function AdminPanel({ data, setData, saveState }){
   const classIds = Object.keys(data.classes);
   const [classId, setClassId] = useState(classIds[0]);
   const [tab, setTab] = useState("feedback");
+  const activeClassId = data.classes[classId] ? classId : classIds[0];
 
   const tabs = [
     ["feedback","기록 관리"],
+    ["classes","반 관리"],
     ["terms","기간 관리"],
     ["students","학생 관리"],
     ["notices","공지 관리"],
@@ -1078,7 +1115,7 @@ function AdminPanel({ data, setData, saveState }){
         <div className="flex flex-wrap gap-2 mb-4">
           {classIds.map(id=>(
             <button key={id} onClick={()=>setClassId(id)}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${classId===id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line"}`}>
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${activeClassId===id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line"}`}>
               {data.classes[id].name}
             </button>
           ))}
@@ -1086,11 +1123,12 @@ function AdminPanel({ data, setData, saveState }){
       )}
 
       <div className="bg-paper/40 rounded-2xl p-1">
-        {tab==="feedback" && <FeedbackManager key={classId} data={data} setData={setData} classId={classId} />}
+        {tab==="feedback" && <FeedbackManager key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
+        {tab==="classes"  && <ClassManager data={data} setData={setData} />}
         {tab==="terms"    && <TermManager data={data} setData={setData} />}
-        {tab==="students" && <StudentManager  key={classId} data={data} setData={setData} classId={classId} />}
-        {tab==="notices"  && <NoticeManager   key={classId} data={data} setData={setData} classId={classId} />}
-        {tab==="schedule" && <ScheduleManager key={classId} data={data} setData={setData} classId={classId} />}
+        {tab==="students" && <StudentManager  key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
+        {tab==="notices"  && <NoticeManager   key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
+        {tab==="schedule" && <ScheduleManager key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
         {tab==="data"     && <DataManager     data={data} setData={setData} />}
       </div>
     </div>
