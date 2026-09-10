@@ -657,10 +657,84 @@ function AdminLogin({ password, onOk }){
 const inputCls = "w-full px-3 py-2.5 rounded-xl border border-line bg-paper focus:border-sprout-ring focus:bg-white transition";
 
 /* ── 기록 관리 (기간별) ── */
+function BulkNotes({ data, setData, classId, termId }){
+  const cls = data.classes[classId];
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [msg, setMsg] = useState("");
+
+  const saveNote = (sid, val) => setData(prev=>{
+    const d=clone(prev); const st=d.classes[classId].students.find(s=>s.id===sid);
+    if(!st) return prev;
+    if(!st.termNotes) st.termNotes={};
+    if((st.termNotes[termId]||"") === val) return prev;   // 변경 없으면 저장 생략
+    st.termNotes[termId]=val; return d;
+  });
+
+  const applyPaste = () => {
+    const lines = pasteText.split("\n").map(l=>l.trim()).filter(Boolean);
+    let ok=0; const miss=[];
+    setData(prev=>{
+      const d=clone(prev); const students=d.classes[classId].students;
+      lines.forEach(line=>{
+        const parts = line.split(/\t|,/);
+        if(parts.length<2){ miss.push(line); return; }
+        const name = parts[0].trim();
+        const content = parts.slice(1).join(" ").trim();
+        const st = students.find(s=>s.name.trim()===name);
+        if(!st){ miss.push(name); return; }
+        if(!st.termNotes) st.termNotes={};
+        st.termNotes[termId]=content; ok++;
+      });
+      return d;
+    });
+    setMsg(`${ok}명 적용됨${miss.length?` · 이름 매칭 실패: ${miss.join(", ")}`:""}`);
+    if(ok>0) setPasteText("");
+  };
+
+  return (
+    <div>
+      <div className="bg-white rounded-2xl border border-line p-4 mb-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-sm text-muted">반 전체 <b className="text-ink">종합 기록</b>을 한 화면에서 입력해요. 칸을 벗어나면 자동 저장됩니다.</p>
+          <button onClick={()=>setPasteOpen(o=>!o)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-sprout-soft text-sprout-deep hover:bg-sprout-ring transition whitespace-nowrap">붙여넣기로 채우기</button>
+        </div>
+        {pasteOpen && (
+          <div className="mt-3">
+            <p className="text-xs text-muted mb-1">엑셀·구글시트에서 <b>이름[탭]내용</b> 형식으로 복사해 붙여넣고 적용하세요. (쉼표 구분도 가능)</p>
+            <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} rows="4"
+              placeholder={"김하준\t이번 학기 개념 이해가 탄탄합니다...\n이서윤\t발표를 즐기고 참여도가 높습니다..."}
+              className={inputCls+" font-mono text-xs resize-y"} />
+            <div className="flex items-center gap-2 mt-2">
+              <button onClick={applyPaste} className="px-4 py-2 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep transition">적용</button>
+              {msg && <span className="text-xs text-muted">{msg}</span>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        {cls.students.length===0 && <p className="text-muted text-sm text-center py-6">[학생 관리]에서 학생을 먼저 추가해 주세요.</p>}
+        {cls.students.map(s=>(
+          <div key={s.id+"|"+termId} className="bg-white rounded-2xl border border-line p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-jua text-ink">{s.name}</span>
+              {!s.code && <span className="text-[11px] text-coral font-bold">코드 미지정</span>}
+            </div>
+            <textarea defaultValue={(s.termNotes||{})[termId]||""} onBlur={e=>saveNote(s.id, e.target.value)}
+              rows="3" placeholder="이 기간의 종합 기록을 적어주세요." className={inputCls+" resize-y leading-relaxed"} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FeedbackManager({ data, setData, classId }){
   const cls = data.classes[classId];
   const [studentId, setStudentId] = useState(cls.students[0]?.id || "");
   const [termId, setTermId] = useState(data.currentTermId || (data.terms[0] && data.terms[0].id));
+  const [bulk, setBulk] = useState(false);
   const blank = { date:todayISO(), category:data.categories[0], rating:"good", content:"" };
   const [form, setForm] = useState(blank);
   const [editId, setEditId] = useState(null);
@@ -695,98 +769,110 @@ function FeedbackManager({ data, setData, classId }){
   return (
     <div>
       {/* 기간 선택 */}
-      <div className="mb-4">
+      <div className="mb-3">
         <label className="text-xs text-muted font-bold block mb-1">기간</label>
         <select value={termId} onChange={e=>{ setTermId(e.target.value); resetForm(); }} className={inputCls}>
           {data.terms.map(t=><option key={t.id} value={t.id}>{t.label}{t.id===data.currentTermId?" (현재)":""}</option>)}
         </select>
       </div>
 
-      {/* 학생 선택 */}
-      <div className="flex flex-wrap gap-2 mb-5">
-        {cls.students.map(s=>{
-          const cnt = s.feedbacks.filter(f=>(f.termId||"")===termId).length;
-          return (
-            <button key={s.id} onClick={()=>{ setStudentId(s.id); resetForm(); }}
-              className={`px-3.5 py-2 rounded-xl text-sm font-bold border transition ${studentId===s.id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line hover:border-sprout-ring"}`}>
-              {s.name}<span className="ml-1.5 text-xs opacity-70">{cnt}</span>
-            </button>
-          );
-        })}
-        {cls.students.length===0 && <p className="text-muted text-sm">[학생 관리]에서 학생을 먼저 추가해 주세요.</p>}
+      {/* 입력 방식 토글 */}
+      <div className="flex gap-2 mb-5">
+        <button onClick={()=>setBulk(false)} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${!bulk?"bg-ink text-white border-ink":"bg-white text-muted border-line hover:border-sprout-ring"}`}>개별 입력</button>
+        <button onClick={()=>setBulk(true)}  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${bulk?"bg-ink text-white border-ink":"bg-white text-muted border-line hover:border-sprout-ring"}`}>일괄 입력 (반 전체)</button>
       </div>
 
-      {student && (
-        <>
-          {/* 포트폴리오 내보내기 */}
-          <div className="bg-white rounded-2xl border border-line p-3 mb-5 flex flex-wrap items-center gap-2">
-            <span className="text-sm font-bold text-ink mr-1">{student.name} 전체 포트폴리오</span>
-            <button onClick={()=>exportStudentPDF(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-sprout text-white hover:bg-sprout-deep transition">PDF</button>
-            <button onClick={()=>exportStudentText(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">텍스트</button>
-          </div>
+      {bulk ? (
+        <BulkNotes data={data} setData={setData} classId={classId} termId={termId} />
+      ) : (
+      <div>
+        {/* 학생 선택 */}
+        <div className="flex flex-wrap gap-2 mb-5">
+          {cls.students.map(s=>{
+            const cnt = s.feedbacks.filter(f=>(f.termId||"")===termId).length;
+            return (
+              <button key={s.id} onClick={()=>{ setStudentId(s.id); resetForm(); }}
+                className={`px-3.5 py-2 rounded-xl text-sm font-bold border transition ${studentId===s.id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line hover:border-sprout-ring"}`}>
+                {s.name}<span className="ml-1.5 text-xs opacity-70">{cnt}</span>
+              </button>
+            );
+          })}
+          {cls.students.length===0 && <p className="text-muted text-sm">[학생 관리]에서 학생을 먼저 추가해 주세요.</p>}
+        </div>
 
-          {/* 자연어 종합 기록 */}
-          <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5">
-            <p className="font-jua text-lg text-ink mb-1">{curTerm ? curTerm.label : ""} · 종합 기록</p>
-            <p className="text-xs text-muted mb-3">학부모님께 보여줄 자연어 기록이에요. 포트폴리오처럼 이 기간의 성장·성취를 문장으로 남겨보세요.</p>
-            <textarea value={note} onChange={e=>setNote(e.target.value)} rows="4"
-              placeholder={`예) 이번 ${curTerm?curTerm.label:'기간'} 동안 ${student.name} 학생은 ...`}
-              className={inputCls+" resize-y leading-relaxed"} />
-          </div>
-
-          {/* 개별 기록 입력 */}
-          <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5">
-            <p className="font-jua text-lg text-ink mb-4">{editId ? "개별 기록 수정" : "개별 기록 추가"}</p>
-            <div className="grid sm:grid-cols-3 gap-3 mb-3">
-              <div>
-                <label className="text-xs text-muted font-bold">날짜</label>
-                <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} className={inputCls} />
-              </div>
-              <div>
-                <label className="text-xs text-muted font-bold">항목</label>
-                <select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} className={inputCls}>
-                  {data.categories.map(c=><option key={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-muted font-bold">평가</label>
-                <select value={form.rating} onChange={e=>setForm({...form,rating:e.target.value})} className={inputCls}>
-                  {data.ratings.map(r=><option key={r.key} value={r.key}>{r.emoji} {r.label}</option>)}
-                </select>
-              </div>
+        {student && (
+          <>
+            {/* 포트폴리오 내보내기 */}
+            <div className="bg-white rounded-2xl border border-line p-3 mb-5 flex flex-wrap items-center gap-2">
+              <span className="text-sm font-bold text-ink mr-1">{student.name} 전체 포트폴리오</span>
+              <button onClick={()=>exportStudentPDF(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-sprout text-white hover:bg-sprout-deep transition">PDF</button>
+              <button onClick={()=>exportStudentText(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">텍스트</button>
             </div>
-            <textarea value={form.content} onChange={e=>setForm({...form,content:e.target.value})}
-              rows="3" placeholder="구체적인 관찰 내용을 적어주세요." className={inputCls+" resize-y"} />
-            <div className="flex gap-2 mt-3">
-              <button onClick={save} className="px-5 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">{editId ? "수정 저장" : "추가하기"}</button>
-              {editId && <button onClick={resetForm} className="px-4 py-2.5 rounded-xl bg-white border border-line text-muted font-bold hover:border-sprout-ring transition">취소</button>}
-            </div>
-          </div>
 
-          {/* 개별 기록 목록 */}
-          <div className="space-y-3">
-            {list.length===0 && <p className="text-muted text-sm text-center py-6">이 기간에는 개별 기록이 없어요.</p>}
-            {list.map(f=>{
-              const rt=data.ratings.find(r=>r.key===f.rating)||{emoji:"",label:""};
-              return (
-                <div key={f.id} className="bg-white rounded-2xl border border-line p-4 flex gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                      <span className="font-gaegu text-muted text-sm">{fmtKDate(f.date)}</span>
-                      <Chip tone={catTone(f.category)}>{f.category}</Chip>
-                      <Chip tone={ratingTone(f.rating)}>{rt.emoji} {rt.label}</Chip>
-                    </div>
-                    <p className="text-ink text-sm leading-relaxed">{f.content}</p>
-                  </div>
-                  <div className="flex flex-col gap-1.5 shrink-0">
-                    <button onClick={()=>startEdit(f)} className="text-xs font-bold text-sprout-deep hover:underline">수정</button>
-                    <button onClick={()=>remove(f.id)} className="text-xs font-bold text-coral hover:underline">삭제</button>
-                  </div>
+            {/* 자연어 종합 기록 */}
+            <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5">
+              <p className="font-jua text-lg text-ink mb-1">{curTerm ? curTerm.label : ""} · 종합 기록</p>
+              <p className="text-xs text-muted mb-3">학부모님께 보여줄 자연어 기록이에요. 포트폴리오처럼 이 기간의 성장·성취를 문장으로 남겨보세요.</p>
+              <textarea value={note} onChange={e=>setNote(e.target.value)} rows="4"
+                placeholder={`예) 이번 ${curTerm?curTerm.label:'기간'} 동안 ${student.name} 학생은 ...`}
+                className={inputCls+" resize-y leading-relaxed"} />
+            </div>
+
+            {/* 개별 기록 입력 */}
+            <div className="bg-white rounded-2xl border border-line shadow-soft p-5 mb-5">
+              <p className="font-jua text-lg text-ink mb-4">{editId ? "개별 기록 수정" : "개별 기록 추가"}</p>
+              <div className="grid sm:grid-cols-3 gap-3 mb-3">
+                <div>
+                  <label className="text-xs text-muted font-bold">날짜</label>
+                  <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} className={inputCls} />
                 </div>
-              );
-            })}
-          </div>
-        </>
+                <div>
+                  <label className="text-xs text-muted font-bold">항목</label>
+                  <select value={form.category} onChange={e=>setForm({...form,category:e.target.value})} className={inputCls}>
+                    {data.categories.map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted font-bold">평가</label>
+                  <select value={form.rating} onChange={e=>setForm({...form,rating:e.target.value})} className={inputCls}>
+                    {data.ratings.map(r=><option key={r.key} value={r.key}>{r.emoji} {r.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <textarea value={form.content} onChange={e=>setForm({...form,content:e.target.value})}
+                rows="3" placeholder="구체적인 관찰 내용을 적어주세요." className={inputCls+" resize-y"} />
+              <div className="flex gap-2 mt-3">
+                <button onClick={save} className="px-5 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">{editId ? "수정 저장" : "추가하기"}</button>
+                {editId && <button onClick={resetForm} className="px-4 py-2.5 rounded-xl bg-white border border-line text-muted font-bold hover:border-sprout-ring transition">취소</button>}
+              </div>
+            </div>
+
+            {/* 개별 기록 목록 */}
+            <div className="space-y-3">
+              {list.length===0 && <p className="text-muted text-sm text-center py-6">이 기간에는 개별 기록이 없어요.</p>}
+              {list.map(f=>{
+                const rt=data.ratings.find(r=>r.key===f.rating)||{emoji:"",label:""};
+                return (
+                  <div key={f.id} className="bg-white rounded-2xl border border-line p-4 flex gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                        <span className="font-gaegu text-muted text-sm">{fmtKDate(f.date)}</span>
+                        <Chip tone={catTone(f.category)}>{f.category}</Chip>
+                        <Chip tone={ratingTone(f.rating)}>{rt.emoji} {rt.label}</Chip>
+                      </div>
+                      <p className="text-ink text-sm leading-relaxed">{f.content}</p>
+                    </div>
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <button onClick={()=>startEdit(f)} className="text-xs font-bold text-sprout-deep hover:underline">수정</button>
+                      <button onClick={()=>remove(f.id)} className="text-xs font-bold text-coral hover:underline">삭제</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
       )}
     </div>
   );
