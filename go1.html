@@ -11,7 +11,7 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <!-- Babel -->
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.28.5/babel.min.js"></script>
 <!-- html2canvas (리포트 이미지 저장용) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <!-- jsPDF (PDF 내보내기용) -->
@@ -87,6 +87,7 @@
 <body class="note-bg">
 <div id="root"></div>
 
+<script src="./jht-core.js"></script>
 <script type="text/babel">
 const { useState, useMemo, useRef, useEffect } = React;
 
@@ -187,7 +188,7 @@ const initialAppData = {
 /* ── 유틸 ── */
 const uid = () => Math.random().toString(36).slice(2,9);
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const todayISO = () => new Date().toISOString().slice(0,10);
+const todayISO = () => JHTCore.localDate();
 const todayMD = () => { const d=new Date(); return `${d.getMonth()+1}/${d.getDate()}`; };
 const fmtKDate = (iso) => {
   if(!iso) return "";
@@ -209,11 +210,35 @@ function normalize(d){
   Object.values(data.classes||{}).forEach(cls=>{
     (cls.students||[]).forEach(st=>{
       if(!st.termNotes || typeof st.termNotes!=="object") st.termNotes = {};
+      if(!st.termMetrics) {
+        st.termMetrics = {};
+        st.termMetrics[data.currentTermId] = { homeworkRate:st.homeworkRate ?? null, attendanceRate:st.attendanceRate ?? null };
+      }
       (st.feedbacks||[]).forEach(f=>{ if(!f.termId) f.termId = firstId; });
     });
   });
   return data;
 }
+
+
+const draftRegistry = new Map();
+const canLeave = () => ![...draftRegistry.values()].some(Boolean) || confirm("아직 추가하지 않은 개별 기록이 있습니다. 입력 내용을 버리고 이동할까요?");
+function CodeInput({value, onSave, data, studentId}) {
+  const [draft,setDraft]=useState(value||"");
+  const [error,setError]=useState("");
+  useEffect(()=>setDraft(value||""),[value]);
+  return <div><input aria-label="열람 코드" value={draft} className={inputCls} onChange={e=>{setDraft(e.target.value);setError("");}} onBlur={()=>{
+    const code=draft.trim();
+    if(Object.values(data.classes).some(c=>c.students.some(s=>s.id!==studentId && code && (s.code||"").trim()===code))){setError("이미 사용 중인 코드입니다.");setDraft(value||"");return;}
+    onSave(code);
+  }}/>{error&&<p role="alert" className="text-xs text-coral">{error}</p>}</div>;
+}
+function SafeNotice({text}) {
+  // Only bold markup is accepted; all other markup is displayed as text.
+  return <>{String(text).split(/(<b>.*?<\/b>)/gis).map((part,i)=>/^<b>.*<\/b>$/is.test(part)?<b key={i}>{part.slice(3,-4)}</b>:<React.Fragment key={i}>{part}</React.Fragment>)}</>;
+}
+const metricsFor=(student,termId)=>student.termMetrics?.[termId]||{};
+const hasTermRecord=(student,termId)=>!!student.termNotes?.[termId] || (student.feedbacks||[]).some(f=>f.termId===termId) || Object.values(metricsFor(student,termId)).some(v=>v!=null);
 
 /* ── 내보내기 (텍스트 / PDF 포트폴리오) ── */
 function ratingLabelOf(data, key){
@@ -226,15 +251,17 @@ function buildReportText(data, cls, student, terms){
   const L = [];
   L.push(`[${data.brandName}] ${student.name} 학생 학습 포트폴리오`);
   L.push(`반: ${cls.name}`);
-  L.push(`과제 수행률: ${student.homeworkRate}%  /  출석률: ${student.attendanceRate}%`);
+  if(student.summary)L.push(student.summary);
   L.push(`생성일: ${todayISO()}`);
   L.push("");
   (terms||[]).forEach(term=>{
     const note = (student.termNotes||{})[term.id] || "";
     const fbs = (student.feedbacks||[]).filter(f=>(f.termId||"")===term.id).sort((a,b)=>(a.date<b.date?1:-1));
-    if(!note && fbs.length===0) return;
+    if(!hasTermRecord(student,term.id)) return;
     L.push("========================================");
     L.push(`■ ${term.label}`);
+    const m=metricsFor(student,term.id);
+    L.push(`과제 수행률: ${m.homeworkRate==null?"미기록":m.homeworkRate+"%"} / 출석률: ${m.attendanceRate==null?"미기록":m.attendanceRate+"%"}`);
     L.push("");
     if(note){ L.push("[종합 기록]"); L.push(note); L.push(""); }
     if(fbs.length){
@@ -257,7 +284,7 @@ function downloadText(filename, text){
 }
 
 function exportStudentText(data, cls, student, terms){
-  const has = (terms||[]).some(t=> ((student.termNotes||{})[t.id]) || (student.feedbacks||[]).some(f=>(f.termId||"")===t.id));
+  const has = (terms||[]).some(t=>hasTermRecord(student,t.id));
   if(!has){ alert("내보낼 기록이 없어요."); return; }
   downloadText(`${student.name}_포트폴리오_${todayISO()}.txt`, buildReportText(data, cls, student, terms));
 }
@@ -270,14 +297,16 @@ function buildReportElement(data, cls, student, terms){
   html += `<div style="border-bottom:3px solid #111827; padding-bottom:14px; margin-bottom:22px;">
     <div style="font-size:13px; color:#6b7280; letter-spacing:1px;">${esc(data.brandName)}</div>
     <div style="font-size:26px; font-weight:800; margin-top:4px; color:#111827;">${esc(student.name)} 학생 학습 포트폴리오</div>
-    <div style="font-size:13px; color:#6b7280; margin-top:8px;">${esc(cls.name)} · 과제 수행률 ${esc(student.homeworkRate)}% · 출석률 ${esc(student.attendanceRate)}% · 생성일 ${esc(todayISO())}</div>
+    <div style="font-size:13px; color:#6b7280; margin-top:8px;">${esc(cls.name)} · 생성일 ${esc(todayISO())}</div>
   </div>`;
   (terms||[]).forEach(term=>{
     const note = (student.termNotes||{})[term.id] || "";
     const fbs = (student.feedbacks||[]).filter(f=>(f.termId||"")===term.id).sort((a,b)=>(a.date<b.date?1:-1));
-    if(!note && fbs.length===0) return;
+    if(!hasTermRecord(student,term.id)) return;
     html += `<div style="margin-bottom:26px;">
       <div style="font-size:18px; font-weight:800; color:#111827; border-left:5px solid #111827; padding-left:11px; margin-bottom:13px;">${esc(term.label)}</div>`;
+    const m=metricsFor(student,term.id);
+    html += `<p style="font-size:13px">과제 수행률: ${esc(m.homeworkRate==null?"미기록":m.homeworkRate+"%")} · 출석률: ${esc(m.attendanceRate==null?"미기록":m.attendanceRate+"%")}</p>`;
     if(note){
       html += `<div style="background:#f3f4f6; border-radius:10px; padding:14px 16px; margin-bottom:12px; white-space:pre-line; line-height:1.7; font-size:14px;">${esc(note)}</div>`;
     }
@@ -290,12 +319,13 @@ function buildReportElement(data, cls, student, terms){
     html += `</div>`;
   });
   html += `<div style="text-align:center; color:#9ca3af; font-size:12px; margin-top:28px; border-top:1px solid #e5e7eb; padding-top:14px;">${esc(data.brandName)} · 학습 포트폴리오</div>`;
+  if(student.summary) html += `<p style="white-space:pre-line">${esc(student.summary)}</p>`;
   wrap.innerHTML = html;
   return wrap;
 }
 
 function exportStudentPDF(data, cls, student, terms){
-  const has = (terms||[]).some(t=> ((student.termNotes||{})[t.id]) || (student.feedbacks||[]).some(f=>(f.termId||"")===t.id));
+  const has = (terms||[]).some(t=>hasTermRecord(student,t.id));
   if(!has){ alert("내보낼 기록이 없어요."); return; }
   if(!window.html2canvas || !window.jspdf){ alert("PDF 모듈을 불러오지 못했어요. 새로고침 후 다시 시도해 주세요."); return; }
   const el = buildReportElement(data, cls, student, terms);
@@ -355,6 +385,7 @@ const ratingTone = (r) => r==="cheer" ? "coral" : r==="soso" ? "sun" : "sprout";
 
 /* 진행 막대 */
 function Meter({ value, label }){
+  if(value == null) return <div className="text-sm text-muted">{label} · 미기록</div>;
   const v = Math.max(0, Math.min(100, value||0));
   const color = v>=85 ? "bg-sprout" : v>=60 ? "bg-sun" : "bg-coral";
   return (
@@ -454,7 +485,8 @@ function GrowthTimeline({ feedbacks, ratings }){
 /* ────────────────────────────────────────────────
    [학부모] 포트폴리오 (기간별)
    ──────────────────────────────────────────────── */
-function SummaryCard({ cls, student }){
+function SummaryCard({ cls, student, termId }){
+  const metrics=metricsFor(student,termId);
   return (
     <div className="bg-white rounded-2xl border border-line shadow-card p-6 md:p-7 relative overflow-hidden">
       <div className="absolute left-0 top-0 h-1.5 w-full bg-sprout" />
@@ -465,10 +497,8 @@ function SummaryCard({ cls, student }){
       <h2 className="font-jua text-3xl text-ink">
         {student.name} <span className="text-lg text-muted font-noto font-normal">학생</span>
       </h2>
-      <div className="grid sm:grid-cols-2 gap-4 mt-5">
-        <Meter label="과제 수행률" value={student.homeworkRate} />
-        <Meter label="출석률" value={student.attendanceRate} />
-      </div>
+      {student.summary && <p className="mt-3 whitespace-pre-line">{student.summary}</p>}
+
     </div>
   );
 }
@@ -476,13 +506,15 @@ function SummaryCard({ cls, student }){
 function TermSection({ student, ratings, term }){
   const note = (student.termNotes||{})[term.id] || "";
   const fbs = (student.feedbacks||[]).filter(f=> (f.termId||"")===term.id);
-  if(!note && fbs.length===0) return null;
+  const metrics=metricsFor(student,term.id);
+  if(!hasTermRecord(student,term.id)) return null;
   return (
     <div className="bg-white rounded-2xl border border-line shadow-card p-6 md:p-7">
       <div className="flex items-center gap-2 mb-4">
         <span className="w-1.5 h-5 bg-sprout rounded-sm" />
         <h3 className="font-jua text-xl text-ink">{term.label}</h3>
       </div>
+      <div className="grid grid-cols-2 gap-4 mb-4"><Meter label="과제 수행률" value={metrics.homeworkRate}/><Meter label="출석률" value={metrics.attendanceRate}/></div>
       {note && (
         <div className="mb-5 bg-sprout-soft/70 rounded-2xl p-4 border border-sprout-ring">
           <p className="font-gaegu text-sprout-deep text-sm mb-1">선생님 종합 기록</p>
@@ -504,10 +536,12 @@ function ParentView({ data }){
   const lookup = () => {
     const c = code.trim();
     if(!c){ setErr("코드를 입력해 주세요."); return; }
+    const matches=[];
     for(const [classId, cls] of Object.entries(data.classes)){
-      const st = cls.students.find(s => (s.code||"").trim()!=="" && (s.code||"").trim()===c);
-      if(st){ setMatch({classId, studentId:st.id}); setErr(""); setCode(""); setTermView("current"); return; }
+      for(const st of cls.students) if((st.code||"").trim()===c) matches.push({classId,studentId:st.id});
     }
+    if(matches.length>1){setErr("코드가 중복되어 조회할 수 없습니다. 선생님께 문의해 주세요.");return;}
+    if(matches.length===1){setMatch(matches[0]);setErr("");setCode("");setTermView("current");return;}
     setErr("일치하는 코드가 없어요. 선생님께 받으신 코드를 확인해 주세요.");
   };
   const reset = () => { setMatch(null); setErr(""); setCode(""); };
@@ -575,7 +609,7 @@ function ParentView({ data }){
             {cls.notices.map((n,i)=>(
               <li key={i} className="text-ink text-sm leading-relaxed flex gap-2">
                 <span className="text-sun">·</span>
-                <span dangerouslySetInnerHTML={{__html:n}} />
+                <SafeNotice text={n} />
               </li>
             ))}
           </ul>
@@ -591,9 +625,10 @@ function ParentView({ data }){
       </div>
 
       <div ref={captureRef} className="space-y-5">
-        <SummaryCard cls={cls} student={student} />
+        {activeTermId && <SummaryCard cls={cls} student={student} termId={activeTermId} />}
+        {!activeTermId && <div className="font-jua text-xl">{student.name} · 전체 포트폴리오</div>}
         {shownTerms.map(t=> <TermSection key={t.id} student={student} ratings={data.ratings} term={t} />)}
-        {shownTerms.filter(t=>((student.termNotes||{})[t.id]) || (student.feedbacks||[]).some(f=>(f.termId||"")===t.id)).length===0 && (
+        {!shownTerms.some(t=>hasTermRecord(student,t.id)) && (
           <div className="bg-white rounded-2xl border border-line shadow-card p-8 text-center text-muted font-gaegu">
             아직 이 기간의 기록이 없어요.
           </div>
@@ -606,7 +641,7 @@ function ParentView({ data }){
           <h3 className="font-jua text-xl text-ink mb-4">수업 일정</h3>
           <div className="space-y-2">
             {cls.schedule.map(row=>{
-              const isToday = row.date===todayMD();
+              const isToday = row.date===todayISO() || row.date===todayMD();
               return (
                 <div key={row.id}
                   className={`flex items-center gap-3 rounded-xl px-4 py-3 border ${isToday ? "bg-sprout-soft border-sprout-ring" : "bg-paper border-line"}`}>
@@ -671,42 +706,37 @@ function BulkNotes({ data, setData, classId, termId }){
     st.termNotes[termId]=val; return d;
   });
 
+  const plan=JHTCore.pastePlan(pasteText,cls.students);
   const applyPaste = () => {
-    const lines = pasteText.split("\n").map(l=>l.trim()).filter(Boolean);
-    let ok=0; const miss=[];
+    if(plan.errors.length || !plan.rows.length) return;
+    if(!confirm(plan.rows.length+"명의 종합 기록을 미리보기 내용으로 교체할까요?")) return;
     setData(prev=>{
-      const d=clone(prev); const students=d.classes[classId].students;
-      lines.forEach(line=>{
-        const parts = line.split(/\t|,/);
-        if(parts.length<2){ miss.push(line); return; }
-        const name = parts[0].trim();
-        const content = parts.slice(1).join(" ").trim();
-        const st = students.find(s=>s.name.trim()===name);
-        if(!st){ miss.push(name); return; }
-        if(!st.termNotes) st.termNotes={};
-        st.termNotes[termId]=content; ok++;
-      });
+      const d=clone(prev);
+      for(const row of plan.rows) d.classes[classId].students.find(s=>s.id===row.id).termNotes[termId]=row.content;
       return d;
     });
-    setMsg(`${ok}명 적용됨${miss.length?` · 이름 매칭 실패: ${miss.join(", ")}`:""}`);
-    if(ok>0) setPasteText("");
+    setMsg(plan.rows.length+"명 반영됨 · 상단 저장 상태를 확인해 주세요.");setPasteText("");
   };
 
   return (
     <div>
       <div className="bg-white rounded-2xl border border-line p-4 mb-4">
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <p className="text-sm text-muted">반 전체 <b className="text-ink">종합 기록</b>을 한 화면에서 입력해요. 칸을 벗어나면 자동 저장됩니다.</p>
+          <p className="text-sm text-muted">반 전체 <b className="text-ink">종합 기록</b>을 한 화면에서 입력해요. 입력하면 자동 저장됩니다.</p>
           <button onClick={()=>setPasteOpen(o=>!o)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-sprout-soft text-sprout-deep hover:bg-sprout-ring transition whitespace-nowrap">붙여넣기로 채우기</button>
         </div>
         {pasteOpen && (
           <div className="mt-3">
-            <p className="text-xs text-muted mb-1">엑셀·구글시트에서 <b>이름[탭]내용</b> 형식으로 복사해 붙여넣고 적용하세요. (쉼표 구분도 가능)</p>
+            <p className="text-xs text-muted mb-1">엑셀·구글시트에서 <b>학생 코드 또는 이름[탭]내용</b> 형식으로 복사해 붙여넣고 적용하세요. (쉼표 구분도 가능)</p>
             <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} rows="4"
               placeholder={"김하준\t이번 학기 개념 이해가 탄탄합니다...\n이서윤\t발표를 즐기고 참여도가 높습니다..."}
               className={inputCls+" font-mono text-xs resize-y"} />
+            <div className="mt-2 max-h-48 overflow-auto text-sm" aria-live="polite">
+              {plan.errors.map((e,i)=><p key={i} className="text-coral">{e}</p>)}
+              {plan.rows.map(r=><p key={r.id}><b>{r.name}</b> · {r.content}</p>)}
+            </div>
             <div className="flex items-center gap-2 mt-2">
-              <button onClick={applyPaste} className="px-4 py-2 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep transition">적용</button>
+              <button disabled={!!plan.errors.length || !plan.rows.length} onClick={applyPaste} className="px-4 py-2 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep transition">적용</button>
               {msg && <span className="text-xs text-muted">{msg}</span>}
             </div>
           </div>
@@ -721,7 +751,7 @@ function BulkNotes({ data, setData, classId, termId }){
               <span className="font-jua text-ink">{s.name}</span>
               {!s.code && <span className="text-[11px] text-coral font-bold">코드 미지정</span>}
             </div>
-            <textarea defaultValue={(s.termNotes||{})[termId]||""} onBlur={e=>saveNote(s.id, e.target.value)}
+            <textarea value={(s.termNotes||{})[termId]||""} onChange={e=>saveNote(s.id, e.target.value)}
               rows="3" placeholder="이 기간의 종합 기록을 적어주세요." className={inputCls+" resize-y leading-relaxed"} />
           </div>
         ))}
@@ -738,23 +768,31 @@ function FeedbackManager({ data, setData, classId }){
   const blank = { date:todayISO(), category:data.categories[0], rating:"good", content:"" };
   const [form, setForm] = useState(blank);
   const [editId, setEditId] = useState(null);
+  const [query,setQuery]=useState("");
+  const draftKey=useRef(Symbol());
+  const originalRecord=cls.students.find(s=>s.id===studentId)?.feedbacks.find(f=>f.id===editId);
+  const dirty=editId ? !originalRecord || ["date","category","rating","content"].some(k=>form[k]!==originalRecord[k]) : !!form.content.trim();
+  draftRegistry.set(draftKey.current,dirty);
+  useEffect(()=>()=>{draftRegistry.delete(draftKey.current);},[]);
+  const leave=()=>!dirty || confirm("작성 중인 개별 기록을 버리고 이동할까요?");
 
   const student = cls.students.find(s=>s.id===studentId);
   const resetForm = () => { setForm({...blank, date:todayISO()}); setEditId(null); };
 
   const save = () => {
     if(!student) return;
+    if(!form.date){alert("날짜를 선택해 주세요.");return;}
     if(!form.content.trim()){ alert("기록 내용을 입력해 주세요."); return; }
     setData(prev=>{
       const d=clone(prev);
       const st=d.classes[classId].students.find(s=>s.id===studentId);
-      if(editId){ const t=st.feedbacks.find(f=>f.id===editId); Object.assign(t, form, {termId}); }
+      if(editId){ const t=st.feedbacks.find(f=>f.id===editId); if(!t) throw new Error("기록이 변경되었습니다. 다시 선택해 주세요."); Object.assign(t, form, {termId}); }
       else { st.feedbacks.push({ id:uid(), termId, ...form }); }
       return d;
     });
     resetForm();
   };
-  const startEdit = (f) => { setForm({date:f.date,category:f.category,rating:f.rating,content:f.content}); setEditId(f.id); if(f.termId) setTermId(f.termId); };
+  const startEdit = (f) => { if(!leave())return; setForm({date:f.date,category:f.category,rating:f.rating,content:f.content}); setEditId(f.id); if(f.termId) setTermId(f.termId); };
   const remove = (fid) => {
     if(!confirm("이 기록을 삭제할까요?")) return;
     setData(prev=>{ const d=clone(prev); const st=d.classes[classId].students.find(s=>s.id===studentId); st.feedbacks=st.feedbacks.filter(f=>f.id!==fid); return d; });
@@ -771,7 +809,7 @@ function FeedbackManager({ data, setData, classId }){
       {/* 기간 선택 */}
       <div className="mb-3">
         <label className="text-xs text-muted font-bold block mb-1">기간</label>
-        <select value={termId} onChange={e=>{ setTermId(e.target.value); resetForm(); }} className={inputCls}>
+        <select value={termId} onChange={e=>{ if(leave()){ setTermId(e.target.value); resetForm(); } }} className={inputCls}>
           {data.terms.map(t=><option key={t.id} value={t.id}>{t.label}{t.id===data.currentTermId?" (현재)":""}</option>)}
         </select>
       </div>
@@ -787,11 +825,12 @@ function FeedbackManager({ data, setData, classId }){
       ) : (
       <div>
         {/* 학생 선택 */}
+        <input aria-label="기록 학생 검색" value={query} onChange={e=>setQuery(e.target.value)} placeholder="학생 이름·코드 검색" className={inputCls+" mb-3"} />
         <div className="flex flex-wrap gap-2 mb-5">
-          {cls.students.map(s=>{
+          {cls.students.filter(s=>(s.name+" "+s.code).includes(query.trim())).map(s=>{
             const cnt = s.feedbacks.filter(f=>(f.termId||"")===termId).length;
             return (
-              <button key={s.id} onClick={()=>{ setStudentId(s.id); resetForm(); }}
+              <button key={s.id} onClick={()=>{ if(s.id!==studentId && leave()){setStudentId(s.id); resetForm();} }}
                 className={`px-3.5 py-2 rounded-xl text-sm font-bold border transition ${studentId===s.id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line hover:border-sprout-ring"}`}>
                 {s.name}<span className="ml-1.5 text-xs opacity-70">{cnt}</span>
               </button>
@@ -882,6 +921,8 @@ function FeedbackManager({ data, setData, classId }){
 function StudentManager({ data, setData, classId }){
   const cls = data.classes[classId];
   const [name, setName] = useState("");
+  const [query,setQuery]=useState("");
+  const [metricTerm,setMetricTerm]=useState(data.currentTermId);
 
   const add = () => {
     if(!name.trim()) return;
@@ -895,7 +936,11 @@ function StudentManager({ data, setData, classId }){
   const upd = (sid, field, value) => setData(prev=>{
     const d=clone(prev);
     const s=d.classes[classId].students.find(x=>x.id===sid);
-    s[field] = (field==="homeworkRate"||field==="attendanceRate") ? Number(value)||0 : value;
+    if(field==="homeworkRate"||field==="attendanceRate"){
+      if(!s.termMetrics)s.termMetrics={};
+      if(!s.termMetrics[metricTerm])s.termMetrics[metricTerm]={};
+      s.termMetrics[metricTerm][field]=value===""?null:Math.max(0,Math.min(100,Number(value)||0));
+    } else s[field]=value;
     return d;
   });
   const remove = (sid) => {
@@ -907,7 +952,7 @@ function StudentManager({ data, setData, classId }){
   const genCode = (sid) => {
     const used = new Set();
     Object.values(data.classes).forEach(c=> c.students.forEach(s=>{ if((s.code||"").trim()) used.add(s.code.trim()); }));
-    let c; do { c = String(Math.floor(1000 + Math.random()*9000)); } while(used.has(c));
+    let c; do { c = String(Math.floor(100000 + Math.random()*900000)); } while(used.has(c));
     upd(sid, "code", c);
   };
 
@@ -919,10 +964,12 @@ function StudentManager({ data, setData, classId }){
         <button onClick={add} className="px-5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition whitespace-nowrap">추가</button>
       </div>
 
+      <input aria-label="학생 검색" value={query} onChange={e=>setQuery(e.target.value)} placeholder="학생 이름·코드 검색" className={inputCls+" mb-3"} />
+      <label className="text-sm">출석·과제 기록 기간<select aria-label="수치 기록 기간" value={metricTerm} onChange={e=>setMetricTerm(e.target.value)} className={inputCls}>{data.terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select></label>
       <p className="text-xs text-muted mb-3"> 학부모는 이 코드로만 본인 자녀를 조회할 수 있어요. 다른 학생의 이름·기록은 화면에 보이지 않습니다. 코드가 없는 학생은 조회가 불가능하니 꼭 지정해 주세요.</p>
 
       <div className="space-y-3">
-        {cls.students.map(s=>(
+        {cls.students.filter(s=>(s.name+" "+s.code).includes(query.trim())).map(s=>(
           <div key={s.id} className="bg-white rounded-2xl border border-line p-4">
             <div className="flex items-center justify-between mb-3">
               <input value={s.name} onChange={e=>upd(s.id,"name",e.target.value)}
@@ -933,21 +980,22 @@ function StudentManager({ data, setData, classId }){
               <div>
                 <label className="text-xs text-muted font-bold">열람 코드 (필수)</label>
                 <div className="flex gap-1.5">
-                  <input value={s.code} onChange={e=>upd(s.id,"code",e.target.value)} placeholder="예: 1234" className={inputCls} />
+                  <CodeInput value={s.code} onSave={v=>upd(s.id,"code",v)} data={data} studentId={s.id} />
+                  <button onClick={async()=>{try{await navigator.clipboard.writeText(s.code||"");alert("코드를 복사했습니다.");}catch{alert("복사하지 못했습니다. 코드를 직접 선택해 주세요.");}}} className="text-xs">복사</button>
                   <button onClick={()=>genCode(s.id)} className="shrink-0 px-2.5 rounded-xl bg-sprout-soft text-sprout-deep text-xs font-bold hover:bg-sprout-ring transition whitespace-nowrap">자동</button>
                 </div>
               </div>
               <div>
                 <label className="text-xs text-muted font-bold">과제 수행률 %</label>
-                <input type="number" min="0" max="100" value={s.homeworkRate} onChange={e=>upd(s.id,"homeworkRate",e.target.value)} className={inputCls} />
+                <input type="number" min="0" max="100" value={metricsFor(s,metricTerm).homeworkRate ?? ""} onChange={e=>upd(s.id,"homeworkRate",e.target.value)} className={inputCls} />
               </div>
               <div>
                 <label className="text-xs text-muted font-bold">출석률 %</label>
-                <input type="number" min="0" max="100" value={s.attendanceRate} onChange={e=>upd(s.id,"attendanceRate",e.target.value)} className={inputCls} />
+                <input type="number" min="0" max="100" value={metricsFor(s,metricTerm).attendanceRate ?? ""} onChange={e=>upd(s.id,"attendanceRate",e.target.value)} className={inputCls} />
               </div>
             </div>
             <div className="mt-3">
-              <label className="text-xs text-muted font-bold">종합 한마디 (비워두면 최근 피드백이 표시돼요)</label>
+              <label className="text-xs text-muted font-bold">종합 한마디 (학부모 화면에 표시)</label>
               <textarea value={s.summary} onChange={e=>upd(s.id,"summary",e.target.value)} rows="2" className={inputCls+" resize-y"} />
             </div>
           </div>
@@ -963,7 +1011,7 @@ function NoticeManager({ data, setData, classId }){
   const [text, setText] = useState("");
   const add = () => { if(!text.trim())return; setData(prev=>{const d=clone(prev); d.classes[classId].notices.push(text.trim()); return d;}); setText(""); };
   const upd = (i,v) => setData(prev=>{const d=clone(prev); d.classes[classId].notices[i]=v; return d;});
-  const remove = (i) => setData(prev=>{const d=clone(prev); d.classes[classId].notices.splice(i,1); return d;});
+  const remove = (i) => {if(confirm("이 공지를 삭제할까요?"))setData(prev=>{const d=clone(prev); d.classes[classId].notices.splice(i,1); return d;});};
   return (
     <div>
       <div className="bg-white rounded-2xl border border-line p-4 mb-5 flex gap-2">
@@ -987,16 +1035,16 @@ function NoticeManager({ data, setData, classId }){
 /* ── 일정 관리 ── */
 function ScheduleManager({ data, setData, classId }){
   const cls = data.classes[classId];
-  const add = () => setData(prev=>{const d=clone(prev); d.classes[classId].schedule.push({id:uid(),date:todayMD(),day:"",content:"",homework:""}); return d;});
-  const upd = (id,field,v) => setData(prev=>{const d=clone(prev); const r=d.classes[classId].schedule.find(x=>x.id===id); r[field]=v; return d;});
-  const remove = (id) => setData(prev=>{const d=clone(prev); d.classes[classId].schedule=d.classes[classId].schedule.filter(x=>x.id!==id); return d;});
+  const add = () => setData(prev=>{const d=clone(prev); d.classes[classId].schedule.push({id:uid(),date:todayISO(),day:JHTCore.weekday(todayISO()),content:"",homework:""}); return d;});
+  const upd = (id,field,v) => setData(prev=>{const d=clone(prev); const r=d.classes[classId].schedule.find(x=>x.id===id); r[field]=v; if(field==="date")r.day=JHTCore.weekday(v); return d;});
+  const remove = (id) => {if(confirm("이 일정을 삭제할까요?"))setData(prev=>{const d=clone(prev); d.classes[classId].schedule=d.classes[classId].schedule.filter(x=>x.id!==id); return d;});};
   return (
     <div>
       <button onClick={add} className="mb-4 px-5 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">+ 일정 추가</button>
       <div className="space-y-2">
         {cls.schedule.map(r=>(
           <div key={r.id} className="bg-white rounded-2xl border border-line p-3 grid grid-cols-2 sm:grid-cols-12 gap-2 items-center">
-            <input value={r.date} onChange={e=>upd(r.id,"date",e.target.value)} placeholder="8/20" className={inputCls+" sm:col-span-2"} />
+            <div className="sm:col-span-2">{!/^\d{4}-\d{2}-\d{2}$/.test(r.date)&&<span className="text-xs">기존 날짜: {r.date}</span>}<input aria-label="수업 날짜" type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(r.date)?r.date:""} onChange={e=>upd(r.id,"date",e.target.value)} className={inputCls} /></div>
             <input value={r.day} onChange={e=>upd(r.id,"day",e.target.value)} placeholder="수" className={inputCls+" sm:col-span-1"} />
             <input value={r.content} onChange={e=>upd(r.id,"content",e.target.value)} placeholder="수업 내용" className={inputCls+" sm:col-span-5"} />
             <input value={r.homework} onChange={e=>upd(r.id,"homework",e.target.value)} placeholder="과제" className={inputCls+" sm:col-span-3"} />
@@ -1020,17 +1068,19 @@ function DataManager({ data, setData }){
     const blob = new Blob([jsonStr], {type:"application/json"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href=url; a.download="backup.json"; a.click();
+    a.href=url; a.download=DB_COLLECTION+"_backup_"+todayISO()+".json"; a.click();
     URL.revokeObjectURL(url);
   };
   const doImport = () => {
     try{
-      const parsed = JSON.parse(importText);
-      if(!parsed.classes) throw new Error();
+      const parsed = JHTCore.validate(normalize(JSON.parse(importText)));
+      const count=Object.values(parsed.classes).reduce((n,c)=>n+c.students.length,0);
+      if(!confirm(Object.keys(parsed.classes).length+"개 반, "+count+"명으로 복원할까요? 현재 데이터 백업을 먼저 내려받습니다."))return;
+      downloadText(DB_COLLECTION+"_복원전_"+todayISO()+".json",jsonStr);
       setData(parsed);           // Firestore에 자동 저장됨
       setImportText("");
-      alert("불러오기 완료! (자동 저장됨)");
-    }catch(e){ alert("JSON 형식이 올바르지 않아요."); }
+      alert("복원 내용을 반영했습니다. 상단에 저장됨이 표시될 때까지 기다려 주세요.");
+    }catch(e){ alert(e.message || "백업 형식이 올바르지 않습니다."); }
   };
   const onFile = (e) => {
     const file=e.target.files[0]; if(!file)return;
@@ -1129,6 +1179,7 @@ function TermManager({ data, setData }){
       Object.values(d.classes).forEach(cls=>cls.students.forEach(st=>{
         st.feedbacks=(st.feedbacks||[]).filter(f=>f.termId!==id);
         if(st.termNotes) delete st.termNotes[id];
+        if(st.termMetrics) delete st.termMetrics[id];
       }));
       if(d.currentTermId===id) d.currentTermId=d.terms[d.terms.length-1].id;
       return d;
@@ -1187,7 +1238,7 @@ function AdminPanel({ data, setData, saveState }){
     <div className="max-w-3xl mx-auto px-4 pb-24 fade-up">
       <div className="flex flex-wrap items-center gap-2 mb-4 no-print">
         {tabs.map(([k,label])=>(
-          <button key={k} onClick={()=>setTab(k)}
+          <button key={k} onClick={()=>{if(k!==tab && canLeave())setTab(k);}}
             className={`px-4 py-2 rounded-full text-sm font-bold border transition ${tab===k ? "bg-ink text-white border-ink" : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
             {label}
           </button>
@@ -1200,7 +1251,7 @@ function AdminPanel({ data, setData, saveState }){
       {perClass && classIds.length>1 && (
         <div className="flex flex-wrap gap-2 mb-4">
           {classIds.map(id=>(
-            <button key={id} onClick={()=>setClassId(id)}
+            <button key={id} onClick={()=>{if(id!==classId && canLeave())setClassId(id);}}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${activeClassId===id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line"}`}>
               {data.classes[id].name}
             </button>
@@ -1306,67 +1357,86 @@ function SeedScreen({ onSeed }){
    App (Firebase 실시간 동기화)
    ════════════════════════════════════════════════ */
 function App(){
-  const [data, setData]         = useState(null);
-  const [status, setStatus]     = useState("init");
-  const [saveState, setSaveState] = useState(null);
-  const [mode, setMode]         = useState("parent");
-  const [authed, setAuthed]     = useState(false);
+  const [data,setData]=useState(null);
+  const [status,setStatus]=useState("init");
+  const [saveState,setSaveState]=useState(null);
+  const [saveError,setSaveError]=useState("");
+  const [mode,setMode]=useState("parent");
+  const [authed,setAuthed]=useState(false);
+  const dbRef=useRef(null), base=useRef(null), current=useRef(null);
+  const timer=useRef(null), busy=useRef(false), dirty=useRef(false), lastRemote=useRef(null);
+  const flushRef=useRef(null);
 
-  const dbRef       = useRef(null);
-  const localJson   = useRef("");
-  const saveTimer   = useRef(null);
+  const flush=async()=>{
+    clearTimeout(timer.current);
+    if(busy.current || !dirty.current || !dbRef.current)return;
+    busy.current=true;setSaveState("saving");setSaveError("");
+    const submitted=clone(current.current), ancestor=clone(base.current);
+    try {
+      const ref=dbRef.current.collection(DB_COLLECTION).doc(DB_DOC);
+      const saved=await dbRef.current.runTransaction(async tx=>{
+        const snap=await tx.get(ref);
+        const remote=snap.exists?normalize(snap.data()):null;
+        lastRemote.current=remote;
+        const merged=JHTCore.merge(ancestor,submitted,remote);
+        JHTCore.checkCodes(merged);
+        tx.set(ref,merged);
+        return merged;
+      });
+      // Keep edits typed while the request was in flight.
+      const latest=JHTCore.merge(submitted,current.current,saved);
+      base.current=saved;lastRemote.current=saved;current.current=latest;setData(latest);
+      dirty.current=JSON.stringify(latest)!==JSON.stringify(saved);
+      setSaveState(dirty.current?"saving":"saved");
+    } catch(e) {
+      setSaveState("error");
+      setSaveError(e.message || "저장하지 못했습니다. 연결을 확인하고 다시 시도해 주세요.");
+      busy.current=false;return;
+    }
+    busy.current=false;
+    if(dirty.current)timer.current=setTimeout(()=>flushRef.current(),300);
+  };
+  flushRef.current=flush;
 
   useEffect(()=>{
-    if(!isConfigured()){ setStatus("noconfig"); return; }
-    try{
-      if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-      dbRef.current = firebase.firestore();
-      setStatus("connecting");
-      const ref = dbRef.current.collection(DB_COLLECTION).doc(DB_DOC);
-      const unsub = ref.onSnapshot(
-        (snap)=>{
-          if(snap.exists){
-            const norm = normalize(snap.data());
-            const njson = JSON.stringify(norm);
-            if(njson !== localJson.current){ localJson.current = njson; setData(norm); }
-            setStatus("ready");
-          } else {
-            setData(null); setStatus("empty");
-          }
-        },
-        (err)=>{ console.error(err); setStatus("error"); }
-      );
-      return ()=> unsub();
-    }catch(e){ console.error(e); setStatus("error"); }
+    const leave=e=>{if(dirty.current || [...draftRegistry.values()].some(Boolean)){e.preventDefault();e.returnValue="";}};
+    const online=()=>{if(dirty.current)flushRef.current();};
+    window.addEventListener("beforeunload",leave);window.addEventListener("online",online);
+    if(!isConfigured()){setStatus("noconfig");return;}
+    let unsub=()=>{};
+    try {
+      if(!firebase.apps.length)firebase.initializeApp(firebaseConfig);
+      dbRef.current=firebase.firestore();setStatus("connecting");
+      unsub=dbRef.current.collection(DB_COLLECTION).doc(DB_DOC).onSnapshot(snap=>{
+        // Local pending snapshots must never be treated as acknowledged server data.
+        if(snap.metadata?.hasPendingWrites)return;
+        const remote=snap.exists?normalize(snap.data()):null;
+        lastRemote.current=remote;
+        if(!dirty.current && !busy.current){
+          base.current=remote;current.current=remote;setData(remote);
+          setStatus(remote?"ready":"empty");
+        }
+      },e=>{console.error(e);setStatus("error");});
+    }catch(e){console.error(e);setStatus("error");}
+    return ()=>{unsub();clearTimeout(timer.current);window.removeEventListener("beforeunload",leave);window.removeEventListener("online",online);};
   },[]);
 
-  const scheduleSave = (next)=>{
-    if(!dbRef.current) return;
-    setSaveState("saving");
-    if(saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(()=>{
-      dbRef.current.collection(DB_COLLECTION).doc(DB_DOC).set(next)
-        .then(()=> setSaveState("saved"))
-        .catch((e)=>{ console.error(e); setSaveState("error"); });
-    }, 600);
+  const updateData=updater=>{
+    try {
+      const next=typeof updater==="function"?updater(current.current):updater;
+      if(JSON.stringify(next)===JSON.stringify(current.current))return;
+      current.current=next;setData(next);dirty.current=true;setSaveState("saving");
+      clearTimeout(timer.current);timer.current=setTimeout(()=>flushRef.current(),600);
+    } catch(e){alert(e.message);}
   };
-
-  const updateData = (updater)=>{
-    setData(prev=>{
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      localJson.current = JSON.stringify(next);
-      scheduleSave(next);
-      return next;
-    });
+  const seed=()=>{updateData(normalize(initialAppData));setStatus("ready");};
+  const reloadRemote=()=>{
+    if(busy.current || !confirm("현재 입력 내용을 백업으로 내려받고 서버의 최신 내용을 불러올까요?"))return;
+    downloadText(DB_COLLECTION+"_미저장_"+todayISO()+".json",JSON.stringify(current.current,null,2));
+    clearTimeout(timer.current);dirty.current=false;base.current=lastRemote.current;current.current=lastRemote.current;
+    setData(lastRemote.current);setStatus(lastRemote.current?"ready":"empty");setSaveState(null);setSaveError("");draftRegistry.clear();setMode("parent");setAuthed(false);
   };
-
-  const seed = ()=>{
-    const nd = normalize(initialAppData);
-    localJson.current = JSON.stringify(nd);
-    setData(nd); setStatus("ready"); scheduleSave(nd);
-  };
-
-  const toggleAdmin = ()=> setMode(m=> m==="admin" ? "parent" : "admin");
+  const toggleAdmin=()=>{if(canLeave()){draftRegistry.clear();setAuthed(false);setMode(m=>m==="admin"?"parent":"admin");}};
 
   if(status==="noconfig") return <SetupScreen />;
   if(status==="error")    return <ErrorScreen />;
@@ -1377,6 +1447,14 @@ function App(){
   return (
     <div className="min-h-screen">
       <Header data={headerData} mode={mode} onToggleAdmin={toggleAdmin} />
+      {saveState && <div role="status" className="max-w-3xl mx-auto px-4 mb-4 text-sm no-print">
+        <b>{saveState==="saving"?"저장 중 · 창을 닫지 마세요":saveState==="saved"?"저장됨":"저장되지 않았습니다"}</b>
+        {saveState==="error" && <div className="bg-coral-soft p-3 rounded-xl mt-2">
+          <p>{saveError}</p>
+          <button onClick={flush} className="font-bold underline mr-4">다시 저장</button>
+          <button onClick={reloadRemote} className="font-bold underline">입력 백업 후 최신 내용 불러오기</button>
+        </div>}
+      </div>}
 
       {mode==="parent" && (
         (status==="empty" || !data) ? <ParentEmpty /> : <ParentView data={data} />
