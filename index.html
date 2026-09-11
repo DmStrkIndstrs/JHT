@@ -800,6 +800,8 @@ function FeedbackManager({ data, setData, classId }){
   const list = student ? student.feedbacks.filter(f=>(f.termId||"")===termId).sort((a,b)=> (a.date<b.date?1:-1)) : [];
   const note = student ? ((student.termNotes||{})[termId]||"") : "";
   const curTerm = data.terms.find(t=>t.id===termId);
+  const studentIdx = cls.students.findIndex(s=>s.id===studentId);
+  const gotoStudent = (i) => { if(i<0||i>=cls.students.length||!leave())return; setStudentId(cls.students[i].id); resetForm(); };
 
   return (
     <div>
@@ -843,6 +845,8 @@ function FeedbackManager({ data, setData, classId }){
               <span className="text-sm font-bold text-ink mr-1">{student.name} 전체 포트폴리오</span>
               <button onClick={()=>exportStudentPDF(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-sprout text-white hover:bg-sprout-deep transition">PDF</button>
               <button onClick={()=>exportStudentText(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">텍스트</button>
+              <button onClick={()=>gotoStudent(studentIdx-1)} disabled={studentIdx<=0} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-line disabled:opacity-40 ml-auto">← 이전 학생</button>
+              <button onClick={()=>gotoStudent(studentIdx+1)} disabled={studentIdx>=cls.students.length-1} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-line disabled:opacity-40">다음 학생 →</button>
             </div>
 
             {/* 자연어 종합 기록 */}
@@ -953,6 +957,12 @@ function StudentManager({ data, setData, classId }){
     upd(sid, "code", c);
   };
 
+  // 반 전체 학부모 열람 코드표 다운로드 (배부용)
+  const downloadCodeSheet = () => {
+    const lines = cls.students.map(s=>`${s.name}\t${s.code||"(코드 미지정)"}`);
+    downloadText(`${cls.name}_열람코드표_${todayISO()}.txt`, `${data.brandName} · ${cls.name} 학부모 열람 코드\n생성일: ${todayISO()}\n\n${lines.join("\n")}`);
+  };
+
   return (
     <div>
       <div className="bg-white rounded-2xl border border-line p-4 mb-5 flex gap-2">
@@ -964,6 +974,7 @@ function StudentManager({ data, setData, classId }){
       <input aria-label="학생 검색" value={query} onChange={e=>setQuery(e.target.value)} placeholder="학생 이름·코드 검색" className={inputCls+" mb-3"} />
       <label className="text-sm">출석·과제 기록 기간<select aria-label="수치 기록 기간" value={metricTerm} onChange={e=>setMetricTerm(e.target.value)} className={inputCls}>{data.terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select></label>
       <p className="text-xs text-muted mb-3">💡 학부모는 이 코드로만 본인 자녀를 조회할 수 있어요. 다른 학생의 이름·기록은 화면에 보이지 않습니다. 코드가 없는 학생은 조회가 불가능하니 꼭 지정해 주세요.</p>
+      <button onClick={downloadCodeSheet} className="mb-3 text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">📋 반 전체 열람 코드표 다운로드</button>
 
       <div className="space-y-3">
         {cls.students.filter(s=>(s.name+" "+s.code).includes(query.trim())).map(s=>(
@@ -1208,6 +1219,21 @@ function TermManager({ data, setData }){
 }
 
 /* ── 관리자 패널 ── */
+/* ── 기록 누락 학생 현황판 (관리자 홈 배너) ── */
+function MissingRecordsPanel({ data, classId }){
+  const cls = data.classes[classId];
+  const term = data.terms.find(t=>t.id===data.currentTermId);
+  if(!cls) return null;
+  const missing = cls.students.filter(s=>!hasTermRecord(s,data.currentTermId));
+  if(!missing.length) return null;
+  return (
+    <div className="bg-sun-soft border border-sun rounded-2xl p-3 mb-4 text-sm no-print">
+      <b className="text-ink">{term ? term.label : "현재 기간"} 기록 누락 학생 ({missing.length}명)</b>
+      <span className="text-muted"> · {missing.map(s=>s.name).join(", ")}</span>
+    </div>
+  );
+}
+
 function AdminPanel({ data, setData, saveState }){
   const classIds = Object.keys(data.classes);
   const [classId, setClassId] = useState(classIds[0]);
@@ -1255,6 +1281,8 @@ function AdminPanel({ data, setData, saveState }){
           ))}
         </div>
       )}
+
+      {perClass && <MissingRecordsPanel data={data} classId={activeClassId} />}
 
       <div className="bg-paper/40 rounded-2xl p-1">
         {tab==="feedback" && <FeedbackManager key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
