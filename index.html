@@ -247,7 +247,7 @@ function Board({ data, setData, classId, studentId, isAdmin }){
   const [title,setTitle]=useState("");
   const [content,setContent]=useState("");
   const [secret,setSecret]=useState(false);
-  const [targetStudent,setTargetStudent]=useState("");
+  const [targetStudentIds,setTargetStudentIds]=useState([]);
   const [replyDrafts,setReplyDrafts]=useState({});
   const [file,setFile]=useState(null);
   const [uploading,setUploading]=useState(false);
@@ -264,7 +264,7 @@ function Board({ data, setData, classId, studentId, isAdmin }){
   };
   const addPost = async () => {
     if(!title.trim()||!content.trim()){ alert("제목과 내용을 입력해 주세요."); return; }
-    if(isAdmin && secret && !targetStudent){ alert("비밀글로 남길 대상 학생을 선택해 주세요."); return; }
+    if(isAdmin && secret && targetStudentIds.length===0){ alert("비밀글로 남길 대상 학생을 한 명 이상 선택해 주세요."); return; }
     const postId = uid();
     let attachment = null;
     if(file){
@@ -276,11 +276,12 @@ function Board({ data, setData, classId, studentId, isAdmin }){
     setData(prev=>{
       const d=clone(prev); const c=d.classes[classId];
       if(!Array.isArray(c.board)) c.board=[];
-      const postStudentId = isAdmin ? (secret ? targetStudent : null) : studentId;
-      c.board.push({ id:postId, studentId:postStudentId, authorName:viewerName, isAdminPost:isAdmin, title:title.trim(), content:content.trim(), secret, date:todayISO(), replies:[], attachments:attachment?[attachment]:[] });
+      const postStudentId = isAdmin ? null : studentId;
+      const targetIds = isAdmin && secret ? targetStudentIds : [];
+      c.board.push({ id:postId, studentId:postStudentId, targetStudentIds:targetIds, authorName:viewerName, isAdminPost:isAdmin, title:title.trim(), content:content.trim(), secret, date:todayISO(), replies:[], attachments:attachment?[attachment]:[] });
       return d;
     });
-    setTitle(""); setContent(""); setSecret(false); setTargetStudent(""); setFile(null);
+    setTitle(""); setContent(""); setSecret(false); setTargetStudentIds([]); setFile(null);
   };
   const addComment = (postId) => {
     const val=(replyDrafts[postId]||"").trim(); if(!val) return;
@@ -301,12 +302,12 @@ function Board({ data, setData, classId, studentId, isAdmin }){
     setData(prev=>{
       const d=clone(prev); const c=d.classes[classId];
       const p=(c.board||[]).find(x=>x.id===postId); if(!p) return prev;
-      if(!p.secret && !p.studentId){ alert("비밀글로 바꾸려면 먼저 대상 학생이 필요합니다. (학생이 직접 쓴 글만 비밀글로 전환할 수 있어요)"); return prev; }
+      if(!p.secret && !p.studentId && !(p.targetStudentIds&&p.targetStudentIds.length)){ alert("비밀글로 바꾸려면 대상 학생이 필요합니다. (학생이 직접 쓴 글이거나, 새 글 작성 시 대상 학생을 지정한 글만 비밀글로 전환할 수 있어요)"); return prev; }
       p.secret = !p.secret;
       return d;
     });
   };
-  const canSee = (p) => isAdmin || !p.secret || p.studentId===studentId;
+  const canSee = (p) => isAdmin || !p.secret || p.studentId===studentId || (Array.isArray(p.targetStudentIds) && p.targetStudentIds.includes(studentId));
 
   return (
     <div>
@@ -333,10 +334,21 @@ function Board({ data, setData, classId, studentId, isAdmin }){
             <input type="checkbox" checked={secret} onChange={e=>setSecret(e.target.checked)} /> 비밀글로 작성 (특정 학생·학부모만 볼 수 있어요)
           </label>
           {secret && (
-            <select value={targetStudent} onChange={e=>setTargetStudent(e.target.value)} className={inputCls+" mb-2"}>
-              <option value="">대상 학생 선택</option>
-              {cls.students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+            <div className="mb-2 max-h-40 overflow-auto border border-line rounded-xl p-2.5">
+              <label className="flex items-center gap-1.5 text-xs font-bold text-ink mb-1.5 pb-1.5 border-b border-line">
+                <input type="checkbox" checked={cls.students.length>0 && targetStudentIds.length===cls.students.length}
+                  onChange={e=>setTargetStudentIds(e.target.checked ? cls.students.map(s=>s.id) : [])} />
+                전체 학생 (반 전체 대상)
+              </label>
+              {cls.students.map(s=>(
+                <label key={s.id} className="flex items-center gap-1.5 text-xs text-ink mb-1">
+                  <input type="checkbox" checked={targetStudentIds.includes(s.id)}
+                    onChange={e=>setTargetStudentIds(ids=> e.target.checked ? [...ids,s.id] : ids.filter(id=>id!==s.id))} />
+                  {s.name}
+                </label>
+              ))}
+              {cls.students.length===0 && <p className="text-xs text-muted">학생이 없어요.</p>}
+            </div>
           )}
           <input type="file" onChange={e=>setFile(e.target.files[0]||null)} className="text-xs mb-2 block" />
           {file && <p className="text-xs text-muted mb-2">첨부: {file.name} ({Math.round(file.size/1024)}KB)</p>}
@@ -357,7 +369,11 @@ function Board({ data, setData, classId, studentId, isAdmin }){
               </div>
               {visible ? (
                 <>
-                  <p className="text-xs text-muted mb-2">{p.authorName}{p.secret ? " · 비밀글" : ""}</p>
+                  <p className="text-xs text-muted mb-2">
+                    {p.authorName}{p.secret ? " · 비밀글" : ""}
+                    {isAdmin && p.secret && p.targetStudentIds && p.targetStudentIds.length>0 &&
+                      ` · 대상: ${p.targetStudentIds.map(id=>(cls.students.find(s=>s.id===id)||{}).name).filter(Boolean).join(", ")}`}
+                  </p>
                   <p className="text-ink text-sm leading-relaxed whitespace-pre-line mb-2">{p.content}</p>
                   {(p.attachments||[]).map(a=>(
                     <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer"
