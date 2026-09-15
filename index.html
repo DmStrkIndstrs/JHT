@@ -246,26 +246,29 @@ function Board({ data, setData, classId, studentId, isAdmin }){
   const [title,setTitle]=useState("");
   const [content,setContent]=useState("");
   const [secret,setSecret]=useState(false);
+  const [targetStudent,setTargetStudent]=useState("");
   const [replyDrafts,setReplyDrafts]=useState({});
+  const viewerName = isAdmin ? "선생님" : ((cls.students.find(s=>s.id===studentId)||{}).name||"");
 
   const addPost = () => {
     if(!title.trim()||!content.trim()){ alert("제목과 내용을 입력해 주세요."); return; }
+    if(isAdmin && secret && !targetStudent){ alert("비밀글로 남길 대상 학생을 선택해 주세요."); return; }
     setData(prev=>{
       const d=clone(prev); const c=d.classes[classId];
       if(!Array.isArray(c.board)) c.board=[];
-      const author=c.students.find(s=>s.id===studentId);
-      c.board.push({ id:uid(), studentId, authorName:author?author.name:"", title:title.trim(), content:content.trim(), secret, date:todayISO(), replies:[] });
+      const postStudentId = isAdmin ? (secret ? targetStudent : null) : studentId;
+      c.board.push({ id:uid(), studentId:postStudentId, authorName:viewerName, isAdminPost:isAdmin, title:title.trim(), content:content.trim(), secret, date:todayISO(), replies:[] });
       return d;
     });
-    setTitle(""); setContent(""); setSecret(false);
+    setTitle(""); setContent(""); setSecret(false); setTargetStudent("");
   };
-  const addReply = (postId) => {
+  const addComment = (postId) => {
     const val=(replyDrafts[postId]||"").trim(); if(!val) return;
     setData(prev=>{
       const d=clone(prev); const c=d.classes[classId];
       const p=(c.board||[]).find(x=>x.id===postId); if(!p) return prev;
       if(!p.replies) p.replies=[];
-      p.replies.push({ id:uid(), content:val, date:todayISO() });
+      p.replies.push({ id:uid(), author:viewerName, isAdminReply:isAdmin, content:val, date:todayISO() });
       return d;
     });
     setReplyDrafts(r=>({...r,[postId]:""}));
@@ -273,6 +276,15 @@ function Board({ data, setData, classId, studentId, isAdmin }){
   const removePost = (postId) => {
     if(!confirm("이 글을 삭제할까요?")) return;
     setData(prev=>{ const d=clone(prev); const c=d.classes[classId]; c.board=(c.board||[]).filter(x=>x.id!==postId); return d; });
+  };
+  const toggleSecret = (postId) => {
+    setData(prev=>{
+      const d=clone(prev); const c=d.classes[classId];
+      const p=(c.board||[]).find(x=>x.id===postId); if(!p) return prev;
+      if(!p.secret && !p.studentId){ alert("비밀글로 바꾸려면 먼저 대상 학생이 필요합니다. (학생이 직접 쓴 글만 비밀글로 전환할 수 있어요)"); return prev; }
+      p.secret = !p.secret;
+      return d;
+    });
   };
   const canSee = (p) => isAdmin || !p.secret || p.studentId===studentId;
 
@@ -290,10 +302,29 @@ function Board({ data, setData, classId, studentId, isAdmin }){
         </div>
       )}
 
+      {isAdmin && (
+        <div className="bg-white rounded-2xl border border-line p-4 mb-4">
+          <p className="font-jua text-lg text-ink mb-3">새 글 작성</p>
+          <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="제목" className={inputCls+" mb-2"} />
+          <textarea value={content} onChange={e=>setContent(e.target.value)} rows="3" placeholder="내용을 입력해 주세요." className={inputCls+" resize-y mb-2"} />
+          <label className="flex items-center gap-1.5 text-sm text-muted mb-2">
+            <input type="checkbox" checked={secret} onChange={e=>setSecret(e.target.checked)} /> 비밀글로 작성 (특정 학생·학부모만 볼 수 있어요)
+          </label>
+          {secret && (
+            <select value={targetStudent} onChange={e=>setTargetStudent(e.target.value)} className={inputCls+" mb-2"}>
+              <option value="">대상 학생 선택</option>
+              {cls.students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          )}
+          <button onClick={addPost} className="px-4 py-2 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep transition">등록</button>
+        </div>
+      )}
+
       <div className="space-y-3">
         {posts.length===0 && <p className="text-muted text-sm text-center py-6">아직 게시글이 없어요.</p>}
         {posts.map(p=>{
           const visible = canSee(p);
+          const canComment = isAdmin || (studentId && visible);
           return (
             <div key={p.id} className="bg-white rounded-2xl border border-line p-4">
               <div className="flex items-center justify-between gap-2 mb-1">
@@ -305,16 +336,21 @@ function Board({ data, setData, classId, studentId, isAdmin }){
                   <p className="text-xs text-muted mb-2">{p.authorName}{p.secret ? " · 비밀글" : ""}</p>
                   <p className="text-ink text-sm leading-relaxed whitespace-pre-line mb-2">{p.content}</p>
                   {(p.replies||[]).map(r=>(
-                    <div key={r.id} className="bg-paper rounded-xl p-3 mt-2 text-sm">
-                      <p className="text-xs text-sprout-deep font-bold mb-1">선생님 답글 · {fmtKDate(r.date)}</p>
+                    <div key={r.id} className={"rounded-xl p-3 mt-2 text-sm "+(r.isAdminReply?"bg-sprout-soft":"bg-paper")}>
+                      <p className="text-xs text-sprout-deep font-bold mb-1">{r.author||(r.isAdminReply?"선생님":"")} · {fmtKDate(r.date)}</p>
                       <p className="text-ink whitespace-pre-line">{r.content}</p>
                     </div>
                   ))}
-                  {isAdmin && (
+                  {canComment && (
                     <div className="mt-2 flex gap-2">
                       <input value={replyDrafts[p.id]||""} onChange={e=>setReplyDrafts(r=>({...r,[p.id]:e.target.value}))}
-                        onKeyDown={e=>e.key==="Enter" && addReply(p.id)} placeholder="답글 작성" className={inputCls+" text-sm"} />
-                      <button onClick={()=>addReply(p.id)} className="px-3 py-2 rounded-xl bg-sprout text-white text-xs font-bold shrink-0 whitespace-nowrap">답글</button>
+                        onKeyDown={e=>e.key==="Enter" && addComment(p.id)} placeholder="댓글 작성" className={inputCls+" text-sm"} />
+                      <button onClick={()=>addComment(p.id)} className="px-3 py-2 rounded-xl bg-sprout text-white text-xs font-bold shrink-0 whitespace-nowrap">등록</button>
+                    </div>
+                  )}
+                  {isAdmin && (
+                    <div className="mt-2 flex gap-2">
+                      <button onClick={()=>toggleSecret(p.id)} className="px-3 py-2 rounded-xl border border-line text-sprout-deep text-xs font-bold shrink-0 whitespace-nowrap">{p.secret?"공개로 전환":"비밀글로 전환"}</button>
                       <button onClick={()=>removePost(p.id)} className="px-3 py-2 rounded-xl border border-line text-coral text-xs font-bold shrink-0 whitespace-nowrap">삭제</button>
                     </div>
                   )}
