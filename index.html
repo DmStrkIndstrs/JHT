@@ -216,6 +216,7 @@ function normalize(d){
       }
       (st.feedbacks||[]).forEach(f=>{ if(!f.termId) f.termId = firstId; });
     });
+    if(!Array.isArray(cls.board)) cls.board = [];
   });
   return data;
 }
@@ -236,6 +237,97 @@ function CodeInput({value, onSave, data, studentId}) {
 function SafeNotice({text}) {
   // Only bold markup is accepted; all other markup is displayed as text.
   return <>{String(text).split(/(<b>.*?<\/b>)/gis).map((part,i)=>/^<b>.*<\/b>$/is.test(part)?<b key={i}>{part.slice(3,-4)}</b>:<React.Fragment key={i}>{part}</React.Fragment>)}</>;
+}
+
+/* ── 게시판 (학부모 질문/이야기 + 비밀글, 선생님 답글) ── */
+function Board({ data, setData, classId, studentId, isAdmin }){
+  const cls = data.classes[classId];
+  const posts = (cls.board||[]).slice().sort((a,b)=>(a.date<b.date?1:-1));
+  const [title,setTitle]=useState("");
+  const [content,setContent]=useState("");
+  const [secret,setSecret]=useState(false);
+  const [replyDrafts,setReplyDrafts]=useState({});
+
+  const addPost = () => {
+    if(!title.trim()||!content.trim()){ alert("제목과 내용을 입력해 주세요."); return; }
+    setData(prev=>{
+      const d=clone(prev); const c=d.classes[classId];
+      if(!Array.isArray(c.board)) c.board=[];
+      const author=c.students.find(s=>s.id===studentId);
+      c.board.push({ id:uid(), studentId, authorName:author?author.name:"", title:title.trim(), content:content.trim(), secret, date:todayISO(), replies:[] });
+      return d;
+    });
+    setTitle(""); setContent(""); setSecret(false);
+  };
+  const addReply = (postId) => {
+    const val=(replyDrafts[postId]||"").trim(); if(!val) return;
+    setData(prev=>{
+      const d=clone(prev); const c=d.classes[classId];
+      const p=(c.board||[]).find(x=>x.id===postId); if(!p) return prev;
+      if(!p.replies) p.replies=[];
+      p.replies.push({ id:uid(), content:val, date:todayISO() });
+      return d;
+    });
+    setReplyDrafts(r=>({...r,[postId]:""}));
+  };
+  const removePost = (postId) => {
+    if(!confirm("이 글을 삭제할까요?")) return;
+    setData(prev=>{ const d=clone(prev); const c=d.classes[classId]; c.board=(c.board||[]).filter(x=>x.id!==postId); return d; });
+  };
+  const canSee = (p) => isAdmin || !p.secret || p.studentId===studentId;
+
+  return (
+    <div>
+      {!isAdmin && studentId && (
+        <div className="bg-white rounded-2xl border border-line p-4 mb-4">
+          <p className="font-jua text-lg text-ink mb-3">선생님께 질문·이야기 남기기</p>
+          <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="제목" className={inputCls+" mb-2"} />
+          <textarea value={content} onChange={e=>setContent(e.target.value)} rows="3" placeholder="내용을 입력해 주세요." className={inputCls+" resize-y mb-2"} />
+          <label className="flex items-center gap-1.5 text-sm text-muted mb-3">
+            <input type="checkbox" checked={secret} onChange={e=>setSecret(e.target.checked)} /> 비밀글로 남기기 (선생님과 나만 볼 수 있어요)
+          </label>
+          <button onClick={addPost} className="px-4 py-2 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep transition">등록</button>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {posts.length===0 && <p className="text-muted text-sm text-center py-6">아직 게시글이 없어요.</p>}
+        {posts.map(p=>{
+          const visible = canSee(p);
+          return (
+            <div key={p.id} className="bg-white rounded-2xl border border-line p-4">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="font-jua text-ink">{p.secret && "🔒 "}{visible ? p.title : "비밀글입니다"}</span>
+                <span className="text-xs text-muted shrink-0">{fmtKDate(p.date)}</span>
+              </div>
+              {visible ? (
+                <>
+                  <p className="text-xs text-muted mb-2">{p.authorName}{p.secret ? " · 비밀글" : ""}</p>
+                  <p className="text-ink text-sm leading-relaxed whitespace-pre-line mb-2">{p.content}</p>
+                  {(p.replies||[]).map(r=>(
+                    <div key={r.id} className="bg-paper rounded-xl p-3 mt-2 text-sm">
+                      <p className="text-xs text-sprout-deep font-bold mb-1">선생님 답글 · {fmtKDate(r.date)}</p>
+                      <p className="text-ink whitespace-pre-line">{r.content}</p>
+                    </div>
+                  ))}
+                  {isAdmin && (
+                    <div className="mt-2 flex gap-2">
+                      <input value={replyDrafts[p.id]||""} onChange={e=>setReplyDrafts(r=>({...r,[p.id]:e.target.value}))}
+                        onKeyDown={e=>e.key==="Enter" && addReply(p.id)} placeholder="답글 작성" className={inputCls+" text-sm"} />
+                      <button onClick={()=>addReply(p.id)} className="px-3 py-2 rounded-xl bg-sprout text-white text-xs font-bold shrink-0 whitespace-nowrap">답글</button>
+                      <button onClick={()=>removePost(p.id)} className="px-3 py-2 rounded-xl border border-line text-coral text-xs font-bold shrink-0 whitespace-nowrap">삭제</button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-muted text-xs">다른 학생의 비밀글은 선생님만 볼 수 있어요.</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 const metricsFor=(student,termId)=>student.termMetrics?.[termId]||{};
 const hasTermRecord=(student,termId)=>!!student.termNotes?.[termId] || (student.feedbacks||[]).some(f=>f.termId===termId) || Object.values(metricsFor(student,termId)).some(v=>v!=null);
@@ -523,7 +615,7 @@ function TermSection({ student, ratings, term }){
   );
 }
 
-function ParentView({ data }){
+function ParentView({ data, setData }){
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [match, setMatch] = useState(null);      // { classId, studentId }
@@ -656,6 +748,11 @@ function ParentView({ data }){
           </div>
         </div>
       )}
+
+      <div className="mt-5 no-print">
+        <h3 className="font-jua text-xl text-ink mb-3">게시판</h3>
+        <Board data={data} setData={setData} classId={match.classId} studentId={student.id} isAdmin={false} />
+      </div>
     </div>
   );
 }
@@ -1247,9 +1344,10 @@ function AdminPanel({ data, setData, saveState }){
     ["students","학생 관리"],
     ["notices","공지 관리"],
     ["schedule","일정 관리"],
+    ["board","게시판"],
     ["data","데이터·설정"],
   ];
-  const perClass = tab==="feedback" || tab==="students" || tab==="notices" || tab==="schedule";
+  const perClass = tab==="feedback" || tab==="students" || tab==="notices" || tab==="schedule" || tab==="board";
 
   const saveBadge = {
     saving: { t:"저장 중…", c:"bg-sun-soft text-[#a9781a]" },
@@ -1291,6 +1389,7 @@ function AdminPanel({ data, setData, saveState }){
         {tab==="students" && <StudentManager  key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
         {tab==="notices"  && <NoticeManager   key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
         {tab==="schedule" && <ScheduleManager key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
+        {tab==="board"    && <Board key={activeClassId} data={data} setData={setData} classId={activeClassId} studentId={null} isAdmin={true} />}
         {tab==="data"     && <DataManager     data={data} setData={setData} />}
       </div>
     </div>
@@ -1482,7 +1581,7 @@ function App(){
       </div>}
 
       {mode==="parent" && (
-        (status==="empty" || !data) ? <ParentEmpty /> : <ParentView data={data} />
+        (status==="empty" || !data) ? <ParentEmpty /> : <ParentView data={data} setData={updateData} />
       )}
 
       {mode==="admin" && (
