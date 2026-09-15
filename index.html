@@ -19,6 +19,7 @@
 <!-- Firebase (compat) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <!-- Google Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Jua&family=Gaegu:wght@400;700&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
@@ -248,19 +249,38 @@ function Board({ data, setData, classId, studentId, isAdmin }){
   const [secret,setSecret]=useState(false);
   const [targetStudent,setTargetStudent]=useState("");
   const [replyDrafts,setReplyDrafts]=useState({});
+  const [file,setFile]=useState(null);
+  const [uploading,setUploading]=useState(false);
   const viewerName = isAdmin ? "선생님" : ((cls.students.find(s=>s.id===studentId)||{}).name||"");
 
-  const addPost = () => {
+  const uploadAttachment = async (postId) => {
+    if(!file) return null;
+    if(file.size > 10*1024*1024) throw new Error("파일은 10MB 이하만 첨부할 수 있어요.");
+    const path = `board/${classId}/${postId}/${uid()}_${file.name}`;
+    const ref = firebase.storage().ref().child(path);
+    await ref.put(file);
+    const url = await ref.getDownloadURL();
+    return { id:uid(), name:file.name, url, path, size:file.size, type:file.type };
+  };
+  const addPost = async () => {
     if(!title.trim()||!content.trim()){ alert("제목과 내용을 입력해 주세요."); return; }
     if(isAdmin && secret && !targetStudent){ alert("비밀글로 남길 대상 학생을 선택해 주세요."); return; }
+    const postId = uid();
+    let attachment = null;
+    if(file){
+      setUploading(true);
+      try { attachment = await uploadAttachment(postId); }
+      catch(e){ alert(e.message || "파일 업로드에 실패했어요. 잠시 후 다시 시도해 주세요."); setUploading(false); return; }
+      setUploading(false);
+    }
     setData(prev=>{
       const d=clone(prev); const c=d.classes[classId];
       if(!Array.isArray(c.board)) c.board=[];
       const postStudentId = isAdmin ? (secret ? targetStudent : null) : studentId;
-      c.board.push({ id:uid(), studentId:postStudentId, authorName:viewerName, isAdminPost:isAdmin, title:title.trim(), content:content.trim(), secret, date:todayISO(), replies:[] });
+      c.board.push({ id:postId, studentId:postStudentId, authorName:viewerName, isAdminPost:isAdmin, title:title.trim(), content:content.trim(), secret, date:todayISO(), replies:[], attachments:attachment?[attachment]:[] });
       return d;
     });
-    setTitle(""); setContent(""); setSecret(false); setTargetStudent("");
+    setTitle(""); setContent(""); setSecret(false); setTargetStudent(""); setFile(null);
   };
   const addComment = (postId) => {
     const val=(replyDrafts[postId]||"").trim(); if(!val) return;
@@ -295,10 +315,12 @@ function Board({ data, setData, classId, studentId, isAdmin }){
           <p className="font-jua text-lg text-ink mb-3">선생님께 질문·이야기 남기기</p>
           <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="제목" className={inputCls+" mb-2"} />
           <textarea value={content} onChange={e=>setContent(e.target.value)} rows="3" placeholder="내용을 입력해 주세요." className={inputCls+" resize-y mb-2"} />
-          <label className="flex items-center gap-1.5 text-sm text-muted mb-3">
+          <label className="flex items-center gap-1.5 text-sm text-muted mb-2">
             <input type="checkbox" checked={secret} onChange={e=>setSecret(e.target.checked)} /> 비밀글로 남기기 (선생님과 나만 볼 수 있어요)
           </label>
-          <button onClick={addPost} className="px-4 py-2 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep transition">등록</button>
+          <input type="file" onChange={e=>setFile(e.target.files[0]||null)} className="text-xs mb-2 block" />
+          {file && <p className="text-xs text-muted mb-2">첨부: {file.name} ({Math.round(file.size/1024)}KB)</p>}
+          <button onClick={addPost} disabled={uploading} className="px-4 py-2 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep transition disabled:opacity-50">{uploading?"업로드 중…":"등록"}</button>
         </div>
       )}
 
@@ -316,7 +338,9 @@ function Board({ data, setData, classId, studentId, isAdmin }){
               {cls.students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           )}
-          <button onClick={addPost} className="px-4 py-2 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep transition">등록</button>
+          <input type="file" onChange={e=>setFile(e.target.files[0]||null)} className="text-xs mb-2 block" />
+          {file && <p className="text-xs text-muted mb-2">첨부: {file.name} ({Math.round(file.size/1024)}KB)</p>}
+          <button onClick={addPost} disabled={uploading} className="px-4 py-2 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep transition disabled:opacity-50">{uploading?"업로드 중…":"등록"}</button>
         </div>
       )}
 
@@ -335,6 +359,10 @@ function Board({ data, setData, classId, studentId, isAdmin }){
                 <>
                   <p className="text-xs text-muted mb-2">{p.authorName}{p.secret ? " · 비밀글" : ""}</p>
                   <p className="text-ink text-sm leading-relaxed whitespace-pre-line mb-2">{p.content}</p>
+                  {(p.attachments||[]).map(a=>(
+                    <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-bold text-sprout-deep underline mb-2 mr-2">📎 {a.name} ({Math.round(a.size/1024)}KB)</a>
+                  ))}
                   {(p.replies||[]).map(r=>(
                     <div key={r.id} className={"rounded-xl p-3 mt-2 text-sm "+(r.isAdminReply?"bg-sprout-soft":"bg-paper")}>
                       <p className="text-xs text-sprout-deep font-bold mb-1">{r.author||(r.isAdminReply?"선생님":"")} · {fmtKDate(r.date)}</p>
