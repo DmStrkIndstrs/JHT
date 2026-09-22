@@ -66,7 +66,51 @@
       if(code)seen.add(code);
     }
   }
-  const api={merge,localDate,weekday,pastePlan,validate,checkCodes};
+
+  // Apply explicit student operations to the latest transaction snapshot only.
+  function studentOperation(remote, action) {
+    if(!remote || !object(remote.classes))throw new Error('서버 데이터를 불러오지 못했습니다.');
+    const data=copy(remote);
+    const cls=data.classes[action.classId];
+    if(action.type==='archive'){
+      if(!cls)throw new Error('반이 삭제되었습니다. 최신 내용을 불러와 주세요.');
+      const index=cls.students.findIndex(s=>s.id===action.studentId);
+      if(index<0)return data; // already deleted, including uncertain-response retries
+      data.studentTrash=data.studentTrash||[];
+      const student=cls.students[index];
+      data.studentTrash.push({id:action.id,classId:action.classId,className:cls.name,index,deletedAt:action.at,student:copy(student),terms:copy(data.terms||[])});
+      cls.students.splice(index,1);
+    } else if(action.type==='code'){
+      const student=cls?.students.find(s=>s.id===action.studentId);
+      if(!student)throw new Error('학생이 삭제되거나 이동했습니다. 최신 내용을 확인해 주세요.');
+      const next=String(action.code||'').trim();
+      if(!next && !action.allowEmpty)throw new Error('코드는 비워둘 수 없습니다.');
+      if((student.code||'').trim()!==action.expectedCode && (student.code||'').trim()!==next)
+        throw new Error('다른 기기에서 이미 코드를 변경했습니다. 최신 내용을 불러온 뒤 다시 시도해 주세요.');
+      if(Object.values(data.classes).some(c=>c.students.some(s=>s!==student && next && (s.code||'').trim()===next)))
+        throw new Error('이미 사용 중인 코드입니다.');
+      student.code=next;
+    } else if(action.type==='restore'){
+      const entry=(data.studentTrash||[]).find(e=>e.id===action.trashId);
+      if(!entry)return data;
+      if(Object.values(data.classes).some(c=>c.students.some(s=>s.id===entry.student.id)))
+        throw new Error('같은 학생이 이미 재적 명단에 있습니다. 복구할 수 없습니다.');
+      const student=copy(entry.student);
+      student.code=String(action.code ?? student.code ?? '').trim();
+      if(student.code && Object.values(data.classes).some(c=>c.students.some(s=>(s.code||'').trim()===student.code)))
+        throw new Error('복구할 학생의 코드를 다른 학생이 사용 중입니다. 다른 코드로 복구해 주세요.');
+      if(!data.classes[entry.classId])data.classes[entry.classId]={name:entry.className,students:[],notices:[],schedule:[],board:[]};
+      const target=data.classes[entry.classId];
+      // Restore missing period labels so archived feedback remains visible. Keep all
+      // existing periods and the current-period selection unchanged.
+      for(const term of entry.terms||[])if(!data.terms.some(t=>t.id===term.id))data.terms.push(copy(term));
+      target.students.splice(Math.min(entry.index,target.students.length),0,student);
+      data.studentTrash=data.studentTrash.filter(e=>e.id!==entry.id);
+    } else throw new Error('지원하지 않는 학생 작업입니다.');
+    return data;
+  }
+
+  const api={merge,localDate,weekday,pastePlan,validate,checkCodes,studentOperation};
   if(typeof module!=='undefined') module.exports=api;
   root.JHTCore=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

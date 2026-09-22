@@ -228,12 +228,22 @@ const canLeave = () => ![...draftRegistry.values()].some(Boolean) || confirm("�
 function CodeInput({value, onSave, data, studentId}) {
   const [draft,setDraft]=useState(value||"");
   const [error,setError]=useState("");
-  useEffect(()=>setDraft(value||""),[value]);
-  return <div><input aria-label="열람 코드" value={draft} className={inputCls} onChange={e=>{setDraft(e.target.value);setError("");}} onBlur={()=>{
-    const code=draft.trim();
-    if(Object.values(data.classes).some(c=>c.students.some(s=>s.id!==studentId && code && (s.code||"").trim()===code))){setError("이미 사용 중인 코드입니다.");setDraft(value||"");return;}
-    onSave(code);
-  }}/>{error&&<p role="alert" className="text-xs text-coral">{error}</p>}</div>;
+  const [pending,setPending]=useState(false);
+  useEffect(()=>{setDraft(value||"");setError("");},[value]);
+  const duplicate=code=>Object.values(data.classes).some(c=>c.students.some(s=>s.id!==studentId && code && (s.code||"").trim()===code));
+  const save=async()=>{
+    const next=draft.trim();
+    if(duplicate(next)){setError("이미 사용 중인 코드입니다.");return;}
+    setPending(true);setError("");
+    try{const ok=await onSave(next);if(ok===false)setError("저장되지 않았습니다. 안내를 확인한 뒤 다시 시도해 주세요.");}
+    catch(e){setError(e.message||"코드를 저장하지 못했습니다.");}
+    finally{setPending(false);}
+  };
+  return <div><input aria-label="열람 코드" disabled={pending} value={draft} className={inputCls}
+    onChange={e=>{setDraft(e.target.value);setError("");}}
+    onBlur={()=>{if(duplicate(draft.trim())){setError("이미 사용 중인 코드입니다.");setDraft(value||"");}}}/>
+    <button type="button" disabled={pending || draft.trim()===(value||"").trim()} onClick={save} className="text-xs font-bold text-sprout-deep mt-1 disabled:opacity-50">{pending?"저장 중…":"코드 저장"}</button>
+    {error&&<p role="alert" className="text-xs text-coral">{error}</p>}</div>;
 }
 function SafeNotice({text}) {
   // Only bold markup is accepted; all other markup is displayed as text.
@@ -695,7 +705,7 @@ function TermSection({ student, ratings, term }){
   );
 }
 
-function ParentView({ data, setData }){
+function ParentView({ data, setData, onStudentAction }){
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [match, setMatch] = useState(null);      // { classId, studentId }
@@ -779,19 +789,13 @@ function ParentView({ data, setData }){
           <div className="bg-white rounded-2xl border border-line p-4">
             <p className="text-sm font-bold text-ink mb-1">새 조회 코드 설정</p>
             <p className="text-xs text-muted mb-2">코드를 바꾸면 이전 코드로는 조회할 수 없어요. 새 코드를 꼭 기억해 주세요. (다른 학생이 쓰는 코드는 사용할 수 없습니다)</p>
-            <CodeInput value={student.code} data={data} studentId={student.id} onSave={v=>{
+            <CodeInput value={student.code} data={data} studentId={student.id} onSave={async v=>{
               const next=(v||"").trim();
-              if(!next){ alert("코드는 비워둘 수 없어요."); return; }
-              if(next===(student.code||"").trim()){ setChangingCode(false); return; }
-              setData(prev=>{
-                const d=clone(prev);
-                const s=d.classes[match.classId].students.find(x=>x.id===match.studentId);
-                if(!s) return prev;
-                s.code=next;
-                return d;
-              });
-              setChangingCode(false);
-              alert("코드를 "+next+" 로 변경했어요. 다음부터는 새 코드로 조회해 주세요.");
+              if(!next){alert("코드는 비워둘 수 없어요.");return false;}
+              if(next===(student.code||"").trim()){setChangingCode(false);return true;}
+              const ok=await onStudentAction({type:"code",classId:match.classId,studentId:match.studentId,expectedCode:(student.code||"").trim(),code:next});
+              if(ok){setChangingCode(false);alert("코드를 "+next+" 로 저장했습니다. 다음부터 새 코드로 조회해 주세요.");}
+              return ok;
             }} />
             <button onClick={()=>setChangingCode(false)} className="text-xs text-muted underline mt-2">취소</button>
           </div>
@@ -1124,7 +1128,7 @@ function FeedbackManager({ data, setData, classId }){
 }
 
 /* ── 학생 관리 ── */
-function StudentManager({ data, setData, classId }){
+function StudentManager({ data, setData, classId, onStudentAction }){
   const cls = data.classes[classId];
   const [name, setName] = useState("");
   const [query,setQuery]=useState("");
@@ -1139,7 +1143,9 @@ function StudentManager({ data, setData, classId }){
     });
     setName("");
   };
-  const upd = (sid, field, value) => setData(prev=>{
+  const upd = (sid, field, value) => {
+    if(field==="code")return onStudentAction({type:"code",classId,studentId:sid,code:value,expectedCode:(cls.students.find(s=>s.id===sid)?.code||"").trim(),allowEmpty:true});
+    return setData(prev=>{
     const d=clone(prev);
     const s=d.classes[classId].students.find(x=>x.id===sid);
     if(field==="homeworkRate"||field==="attendanceRate"){
@@ -1149,16 +1155,18 @@ function StudentManager({ data, setData, classId }){
     } else s[field]=value;
     return d;
   });
+  };
   const remove = (sid) => {
-    if(!confirm("학생을 삭제하면 피드백 기록도 함께 지워집니다. 진행할까요?")) return;
-    setData(prev=>{ const d=clone(prev); d.classes[classId].students=d.classes[classId].students.filter(s=>s.id!==sid); return d; });
+    if(!confirm("이 학생을 휴지통으로 옮길까요? 서버의 최신 기록을 보관하며 나중에 복구할 수 있습니다."))return;
+    onStudentAction({type:"archive",classId,studentId:sid,id:Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join(""),at:new Date().toISOString()});
   };
 
   // 코드 자동 생성 (전체 반에서 겹치지 않는 4자리)
   const genCode = (sid) => {
     const used = new Set();
     Object.values(data.classes).forEach(c=> c.students.forEach(s=>{ if((s.code||"").trim()) used.add(s.code.trim()); }));
-    let c; do { c = String(Math.floor(100000 + Math.random()*900000)); } while(used.has(c));
+    if(used.size>=9000){alert("사용할 수 있는 4자리 코드가 없습니다.");return;}
+    let c; do { c = String(Math.floor(1000 + Math.random()*9000)); } while(used.has(c));
     upd(sid, "code", c);
   };
 
@@ -1439,7 +1447,20 @@ function MissingRecordsPanel({ data, classId }){
   );
 }
 
-function AdminPanel({ data, setData, saveState }){
+
+function StudentTrash({data,onStudentAction}){
+  const [codes,setCodes]=useState({});
+  return <div className="space-y-3"><p className="text-sm text-muted">삭제한 학생의 최신 기록을 보관합니다. 복구할 코드가 다른 학생과 겹치면 아래에서 바꿔 주세요.</p>
+    {!(data.studentTrash||[]).length&&<p className="text-center p-6 text-muted">휴지통이 비어 있습니다.</p>}
+    {[...(data.studentTrash||[])].reverse().map(e=><div key={e.id} className="bg-white border border-line rounded-2xl p-4">
+      <b>{e.student.name} · {e.className}</b><p className="text-xs text-muted my-2">{new Date(e.deletedAt).toLocaleString("ko-KR")} · 기록 {e.student.feedbacks?.length||0}건</p>
+      <div className="flex gap-2"><input aria-label={e.student.name+" 복구 코드"} value={codes[e.id]??e.student.code??""} onChange={v=>setCodes({...codes,[e.id]:v.target.value})} className={inputCls}/>
+      <button onClick={()=>onStudentAction({type:"restore",trashId:e.id,code:codes[e.id]??e.student.code??""})} className="px-4 bg-sprout text-white rounded-xl shrink-0">복구</button></div>
+    </div>)}
+  </div>;
+}
+
+function AdminPanel({ data, setData, saveState, onStudentAction }){
   const classIds = Object.keys(data.classes);
   const [classId, setClassId] = useState(classIds[0]);
   const [tab, setTab] = useState("feedback");
@@ -1450,6 +1471,7 @@ function AdminPanel({ data, setData, saveState }){
     ["classes","반 관리"],
     ["terms","기간 관리"],
     ["students","학생 관리"],
+    ["trash","학생 휴지통"],
     ["notices","공지 관리"],
     ["schedule","일정 관리"],
     ["board","게시판"],
@@ -1494,10 +1516,11 @@ function AdminPanel({ data, setData, saveState }){
         {tab==="feedback" && <FeedbackManager key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
         {tab==="classes"  && <ClassManager data={data} setData={setData} />}
         {tab==="terms"    && <TermManager data={data} setData={setData} />}
-        {tab==="students" && <StudentManager  key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
+        {tab==="students" && <StudentManager  key={activeClassId} data={data} setData={setData} classId={activeClassId} onStudentAction={onStudentAction} />}
         {tab==="notices"  && <NoticeManager   key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
         {tab==="schedule" && <ScheduleManager key={activeClassId} data={data} setData={setData} classId={activeClassId} />}
         {tab==="board"    && <Board key={activeClassId} data={data} setData={setData} classId={activeClassId} studentId={null} isAdmin={true} />}
+        {tab==="trash" && <StudentTrash data={data} onStudentAction={onStudentAction}/>}
         {tab==="data"     && <DataManager     data={data} setData={setData} />}
       </div>
     </div>
@@ -1598,10 +1621,16 @@ function App(){
   const dbRef=useRef(null), base=useRef(null), current=useRef(null);
   const timer=useRef(null), busy=useRef(false), dirty=useRef(false), lastRemote=useRef(null);
   const flushRef=useRef(null);
+  const operationLock=useRef(false);
+  const deferredUpdaters=useRef([]);
+  const [operationBusy,setOperationBusy]=useState(false);
+  const [operationError,setOperationError]=useState("");
+  const failedOperation=useRef(null);
 
   const flush=async()=>{
     clearTimeout(timer.current);
-    if(busy.current || !dirty.current || !dbRef.current)return;
+    if(busy.current || !dbRef.current)return false;
+    if(!dirty.current)return true;
     busy.current=true;setSaveState("saving");setSaveError("");
     const submitted=clone(current.current), ancestor=clone(base.current);
     try {
@@ -1623,15 +1652,16 @@ function App(){
     } catch(e) {
       setSaveState("error");
       setSaveError(e.message || "저장하지 못했습니다. 연결을 확인하고 다시 시도해 주세요.");
-      busy.current=false;return;
+      busy.current=false;return false;
     }
     busy.current=false;
     if(dirty.current)timer.current=setTimeout(()=>flushRef.current(),300);
+    return !dirty.current;
   };
   flushRef.current=flush;
 
   useEffect(()=>{
-    const leave=e=>{if(dirty.current || [...draftRegistry.values()].some(Boolean)){e.preventDefault();e.returnValue="";}};
+    const leave=e=>{if(dirty.current || operationLock.current || [...draftRegistry.values()].some(Boolean)){e.preventDefault();e.returnValue="";}};
     const online=()=>{if(dirty.current)flushRef.current();};
     window.addEventListener("beforeunload",leave);window.addEventListener("online",online);
     if(!isConfigured()){setStatus("noconfig");return;}
@@ -1654,6 +1684,7 @@ function App(){
   },[]);
 
   const updateData=updater=>{
+    if(operationLock.current){deferredUpdaters.current.push(updater);return;}
     try {
       const next=typeof updater==="function"?updater(current.current):updater;
       if(JSON.stringify(next)===JSON.stringify(current.current))return;
@@ -1661,21 +1692,47 @@ function App(){
       clearTimeout(timer.current);timer.current=setTimeout(()=>flushRef.current(),600);
     } catch(e){alert(e.message);}
   };
+
+  const runStudentOperation=async action=>{
+    if(operationLock.current || busy.current){alert("저장 중입니다. 저장 완료 후 다시 시도해 주세요.");return false;}
+    if((action.type==="archive"||action.type==="restore") && !authed)return false;
+    operationLock.current=true;setOperationBusy(true);setOperationError("");failedOperation.current=null;
+    try {
+      // Never fold unrelated, unacknowledged drafts into a targeted operation.
+      if(dirty.current && !await flushRef.current())throw new Error("먼저 저장 충돌을 해결해 주세요. 입력 백업 후 최신 내용을 불러온 다음 다시 시도할 수 있습니다.");
+      if(dirty.current)throw new Error("미저장 내용이 남아 있습니다. 저장 완료 후 다시 시도해 주세요.");
+      if(deferredUpdaters.current.length)throw new Error("다른 입력이 도착했습니다. 저장 완료 후 다시 시도해 주세요.");
+      busy.current=true;
+      const ref=dbRef.current.collection(DB_COLLECTION).doc(DB_DOC);
+      const saved=await dbRef.current.runTransaction(async tx=>{
+        const snap=await tx.get(ref);
+        if(!snap.exists)throw new Error("서버 데이터가 없습니다.");
+        const remote=normalize(snap.data());
+        lastRemote.current=remote;
+        const next=JHTCore.studentOperation(remote,action);
+        tx.set(ref,next);
+        return next;
+      });
+      base.current=saved;current.current=saved;lastRemote.current=saved;dirty.current=false;
+      setData(saved);setStatus("ready");setSaveState("saved");setSaveError("");
+      return true;
+    } catch(e){
+      failedOperation.current=action;
+      setOperationError(e.message||"작업을 완료하지 못했습니다. 다시 시도해 주세요.");
+      return false;
+    } finally{
+      busy.current=false;operationLock.current=false;setOperationBusy(false);
+      const waiting=deferredUpdaters.current.splice(0);
+      waiting.forEach(updater=>updateData(updater));
+    }
+  };
+
   const seed=()=>{updateData(normalize(initialAppData));setStatus("ready");};
   const reloadRemote=()=>{
     if(busy.current || !confirm("현재 입력 내용을 백업으로 내려받고 서버의 최신 내용을 불러올까요?"))return;
     downloadText(DB_COLLECTION+"_미저장_"+todayISO()+".json",JSON.stringify(current.current,null,2));
     clearTimeout(timer.current);dirty.current=false;base.current=lastRemote.current;current.current=lastRemote.current;
     setData(lastRemote.current);setStatus(lastRemote.current?"ready":"empty");setSaveState(null);setSaveError("");draftRegistry.clear();setMode("parent");setAuthed(false);
-  };
-  // Re-base the pending change onto the server copy that the failed merge just read,
-  // so an explicit retry can apply it instead of hitting the same conflict forever.
-  const rebaseAndRetry=()=>{
-    if(busy.current) return;
-    if(!confirm("지금 화면의 내용으로 서버를 덮어쓸까요?\n\n지금 화면에 없는 서버의 변경 내용(다른 기기에서 수정·추가한 것)은 사라집니다. 먼저 [입력 백업 후 최신 내용 불러오기]로 서버 내용을 확인해 보시는 것을 권합니다."))return;
-    base.current=lastRemote.current;
-    dirty.current=true;setSaveError("");setSaveState("saving");
-    flushRef.current();
   };
   const toggleAdmin=()=>{if(canLeave()){draftRegistry.clear();setAuthed(false);setMode(m=>m==="admin"?"parent":"admin");}};
 
@@ -1687,19 +1744,25 @@ function App(){
 
   return (
     <div className="min-h-screen">
+      {operationError && <div role="alert" className="sticky top-0 z-50 bg-coral-soft border border-coral p-4 text-sm">
+        <b>학생 작업을 완료하지 못했습니다.</b><p>{operationError}</p>
+        {authed && failedOperation.current?.type!=="code" && <button onClick={()=>{if(failedOperation.current)runStudentOperation(failedOperation.current);}} className="font-bold underline mr-4">학생 작업 다시 시도</button>}
+        <button onClick={()=>{failedOperation.current=null;setOperationError("");}} className="underline">닫기</button>
+      </div>}
+      {operationBusy&&<p role="status" className="sticky top-0 z-50 bg-white p-4 font-bold">최신 기록을 확인하고 저장 중입니다. 완료될 때까지 기다려 주세요.</p>}
+      <fieldset disabled={operationBusy} className="min-w-0 m-0 p-0 border-0">
       <Header data={headerData} mode={mode} onToggleAdmin={toggleAdmin} />
       {saveState && <div role="status" className={"max-w-3xl mx-auto px-4 mb-4 text-sm no-print"+(saveState==="error"?" sticky top-2 z-50":"")}>
         <b className={saveState==="error"?"text-coral":""}>{saveState==="saving"?"저장 중 · 창을 닫지 마세요":saveState==="saved"?"저장됨":"⚠️ 저장되지 않았습니다 · 이 변경은 아직 서버에 반영되지 않았어요"}</b>
         {saveState==="error" && <div className="bg-coral-soft p-3 rounded-xl mt-2 border border-coral">
           <p className="mb-2">{saveError}</p>
           <button onClick={flush} className="font-bold underline mr-4">다시 저장</button>
-          <button onClick={rebaseAndRetry} className="font-bold underline mr-4">지금 화면 내용으로 덮어쓰기</button>
           <button onClick={reloadRemote} className="font-bold underline">입력 백업 후 최신 내용 불러오기</button>
         </div>}
       </div>}
 
       {mode==="parent" && (
-        (status==="empty" || !data) ? <ParentEmpty /> : <ParentView data={data} setData={updateData} />
+        (status==="empty" || !data) ? <ParentEmpty /> : <ParentView data={data} setData={updateData} onStudentAction={runStudentOperation} />
       )}
 
       {mode==="admin" && (
@@ -1707,12 +1770,13 @@ function App(){
           ? <AdminLogin password={(data && data.adminPassword) || initialAppData.adminPassword} onOk={()=>setAuthed(true)} />
           : ((status==="empty" || !data)
               ? <SeedScreen onSeed={seed} />
-              : <AdminPanel data={data} setData={updateData} saveState={saveState} />)
+              : <AdminPanel data={data} setData={updateData} saveState={saveState} onStudentAction={runStudentOperation} />)
       )}
 
       <footer className="text-center text-muted text-xs pb-10 pt-6 no-print">
         <p className="font-gaegu text-sm">{headerData.brandName}</p>
       </footer>
+      </fieldset>
     </div>
   );
 }

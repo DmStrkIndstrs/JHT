@@ -1,7 +1,7 @@
 {
   "name": "jht-learning-records",
   "private": true,
-  "scripts": { "test": "node tests.cjs" },
+  "scripts": { "test": "node tests.cjs && node student-operations.test.cjs" },
   "devDependencies": {
     "@babel/standalone": "7.28.5",
     "playwright": "1.58.2",
