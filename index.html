@@ -700,6 +700,7 @@ function ParentView({ data, setData }){
   const [err, setErr] = useState("");
   const [match, setMatch] = useState(null);      // { classId, studentId }
   const [termView, setTermView] = useState("current");   // "current" | "all" | termId
+  const [changingCode, setChangingCode] = useState(false);
   const captureRef = useRef(null);
 
   const lookup = () => {
@@ -768,6 +769,33 @@ function ParentView({ data, setData }){
           <button onClick={handleSave} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">이미지</button>
           <button onClick={()=>window.print()} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">인쇄</button>
         </div>
+      </div>
+
+      {/* 내 조회 코드 변경 */}
+      <div className="mb-4 no-print">
+        {!changingCode ? (
+          <button onClick={()=>setChangingCode(true)} className="text-xs font-bold text-muted underline">내 조회 코드 변경</button>
+        ) : (
+          <div className="bg-white rounded-2xl border border-line p-4">
+            <p className="text-sm font-bold text-ink mb-1">새 조회 코드 설정</p>
+            <p className="text-xs text-muted mb-2">코드를 바꾸면 이전 코드로는 조회할 수 없어요. 새 코드를 꼭 기억해 주세요. (다른 학생이 쓰는 코드는 사용할 수 없습니다)</p>
+            <CodeInput value={student.code} data={data} studentId={student.id} onSave={v=>{
+              const next=(v||"").trim();
+              if(!next){ alert("코드는 비워둘 수 없어요."); return; }
+              if(next===(student.code||"").trim()){ setChangingCode(false); return; }
+              setData(prev=>{
+                const d=clone(prev);
+                const s=d.classes[match.classId].students.find(x=>x.id===match.studentId);
+                if(!s) return prev;
+                s.code=next;
+                return d;
+              });
+              setChangingCode(false);
+              alert("코드를 "+next+" 로 변경했어요. 다음부터는 새 코드로 조회해 주세요.");
+            }} />
+            <button onClick={()=>setChangingCode(false)} className="text-xs text-muted underline mt-2">취소</button>
+          </div>
+        )}
       </div>
 
       {/* 공지 */}
