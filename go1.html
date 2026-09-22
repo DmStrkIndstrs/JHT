@@ -1671,6 +1671,15 @@ function App(){
     clearTimeout(timer.current);dirty.current=false;base.current=lastRemote.current;current.current=lastRemote.current;
     setData(lastRemote.current);setStatus(lastRemote.current?"ready":"empty");setSaveState(null);setSaveError("");draftRegistry.clear();setMode("parent");setAuthed(false);
   };
+  // Re-base the pending change onto the server copy that the failed merge just read,
+  // so an explicit retry can apply it instead of hitting the same conflict forever.
+  const rebaseAndRetry=()=>{
+    if(busy.current) return;
+    if(!confirm("지금 화면의 내용으로 서버를 덮어쓸까요?\n\n지금 화면에 없는 서버의 변경 내용(다른 기기에서 수정·추가한 것)은 사라집니다. 먼저 [입력 백업 후 최신 내용 불러오기]로 서버 내용을 확인해 보시는 것을 권합니다."))return;
+    base.current=lastRemote.current;
+    dirty.current=true;setSaveError("");setSaveState("saving");
+    flushRef.current();
+  };
   const toggleAdmin=()=>{if(canLeave()){draftRegistry.clear();setAuthed(false);setMode(m=>m==="admin"?"parent":"admin");}};
 
   if(status==="noconfig") return <SetupScreen />;
@@ -1682,11 +1691,12 @@ function App(){
   return (
     <div className="min-h-screen">
       <Header data={headerData} mode={mode} onToggleAdmin={toggleAdmin} />
-      {saveState && <div role="status" className="max-w-3xl mx-auto px-4 mb-4 text-sm no-print">
-        <b>{saveState==="saving"?"저장 중 · 창을 닫지 마세요":saveState==="saved"?"저장됨":"저장되지 않았습니다"}</b>
-        {saveState==="error" && <div className="bg-coral-soft p-3 rounded-xl mt-2">
-          <p>{saveError}</p>
+      {saveState && <div role="status" className={"max-w-3xl mx-auto px-4 mb-4 text-sm no-print"+(saveState==="error"?" sticky top-2 z-50":"")}>
+        <b className={saveState==="error"?"text-coral":""}>{saveState==="saving"?"저장 중 · 창을 닫지 마세요":saveState==="saved"?"저장됨":"⚠️ 저장되지 않았습니다 · 이 변경은 아직 서버에 반영되지 않았어요"}</b>
+        {saveState==="error" && <div className="bg-coral-soft p-3 rounded-xl mt-2 border border-coral">
+          <p className="mb-2">{saveError}</p>
           <button onClick={flush} className="font-bold underline mr-4">다시 저장</button>
+          <button onClick={rebaseAndRetry} className="font-bold underline mr-4">지금 화면 내용으로 덮어쓰기</button>
           <button onClick={reloadRemote} className="font-bold underline">입력 백업 후 최신 내용 불러오기</button>
         </div>}
       </div>}
