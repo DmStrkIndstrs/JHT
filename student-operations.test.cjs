@@ -83,6 +83,7 @@ async function run(){
   assert.equal(await page.evaluate(()=>__remote.studentTrash.length),1,'Transaction retries must not duplicate trash');
   assert.equal(await page.evaluate(()=>__remote.studentTrash[0].student.feedbacks.at(-1).content),'재시도 중 추가된 기록');
   assert.equal(await page.evaluate(()=>Object.values(__remote.classes)[0].students[0].summary),'다른 학생 최신 기록 유지');
+  await page.getByRole('button',{name:/^설정/}).click();
   await page.getByRole('button',{name:'학생 휴지통',exact:true}).click();
   await page.evaluate(()=>{Object.values(__remote.classes)[0].students[0].code='3333';});
   await page.getByRole('button',{name:'복구',exact:true}).click();

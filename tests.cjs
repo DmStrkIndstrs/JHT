@@ -52,6 +52,7 @@ async function run(){
     await page.getByRole('button',{name:'들어가기',exact:true}).click();
     await page.getByPlaceholder('구체적인 관찰 내용을 적어주세요.').fill('작성중');
     page.removeAllListeners('dialog');page.once('dialog',d=>d.dismiss());
+    await page.getByRole('button',{name:/^설정/}).click();
     await page.getByRole('button',{name:'기간 관리',exact:true}).click();
     assert.equal(await page.getByPlaceholder('구체적인 관찰 내용을 적어주세요.').inputValue(),'작성중');
     page.on('dialog',d=>d.accept());

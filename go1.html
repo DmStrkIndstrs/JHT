@@ -32,7 +32,7 @@
         colors: {
           paper:  "#edeff2",
           ink:    "#1b2431",
-          muted:  "#6b7480",
+          muted:  "#5f6874",
           sprout: { DEFAULT:"#9c2f4d", deep:"#7f2540", soft:"#f4e5ea", ring:"#e2c3cd" },
           sun:    { DEFAULT:"#b98a2b", soft:"#f6ecd8" },
           coral:  { DEFAULT:"#c0392b", soft:"#f6e0dd" },
@@ -53,6 +53,9 @@
 </script>
 
 <style>
+  ::placeholder{ color:#5f6874; opacity:1; }
+  /* 휴대폰에서 누르기 쉬운 최소 터치 크기 */
+  .tap{ min-height:44px; }
   body{ font-family:'IBM Plex Sans KR','Noto Sans KR', sans-serif; background:#edeff2; color:#1b2431; }
   .font-jua{ font-family:'IBM Plex Sans KR', sans-serif; font-weight:700; letter-spacing:-0.01em; }
   .font-gaegu{ font-family:'IBM Plex Mono', monospace; }
@@ -247,10 +250,11 @@ function CodeInput({value, onSave, data, studentId}) {
     catch(e){setError(e.message||"코드를 저장하지 못했습니다.");}
     finally{setPending(false);}
   };
-  return <div><input aria-label="열람 코드" disabled={pending} value={draft} className={inputCls}
+  const changed = draft.trim()!==(value||"").trim();
+  return <div className="flex-1 min-w-0"><input aria-label="열람 코드" disabled={pending} value={draft} className={inputCls}
     onChange={e=>{setDraft(e.target.value);setError("");}}
     onBlur={()=>{if(duplicate(draft.trim())){setError("이미 사용 중인 코드입니다.");setDraft(value||"");}}}/>
-    <button type="button" disabled={pending || draft.trim()===(value||"").trim()} onClick={save} className="text-xs font-bold text-sprout-deep mt-1 disabled:opacity-50">{pending?"저장 중…":"코드 저장"}</button>
+    {(changed || pending) && <button type="button" disabled={pending} onClick={save} className="tap mt-1.5 w-full px-4 rounded-xl bg-sprout text-white text-sm font-bold hover:bg-sprout-deep disabled:opacity-60 transition">{pending?"저장 중…":"코드 저장"}</button>}
     {error&&<p role="alert" className="text-xs text-coral">{error}</p>}</div>;
 }
 function SafeNotice({text}) {
@@ -413,7 +417,7 @@ function Board({ data, setData, classId, studentId, isAdmin }){
                   {isAdmin && (
                     <div className="mt-2 flex gap-2">
                       <button onClick={()=>toggleSecret(p.id)} className="px-3 py-2 rounded-xl border border-line text-sprout-deep text-xs font-bold shrink-0 whitespace-nowrap">{p.secret?"공개로 전환":"비밀글로 전환"}</button>
-                      <button onClick={()=>removePost(p.id)} className="px-3 py-2 rounded-xl border border-line text-coral text-xs font-bold shrink-0 whitespace-nowrap">삭제</button>
+                      <button onClick={()=>removePost(p.id)} className={dangerBtn}>삭제</button>
                     </div>
                   )}
                 </>
@@ -596,23 +600,23 @@ function Meter({ value, label }){
    ──────────────────────────────────────────────── */
 function Header({ data, mode, onToggleAdmin }){
   return (
-    <header className="pt-10 pb-8 px-5 text-center relative">
+    <header className={(mode==="admin" ? "pt-5 pb-4" : "pt-10 pb-8")+" px-5 text-center relative"}>
       <div className="max-w-4xl mx-auto">
-        <div className="inline-flex items-center justify-center mb-4 fade-up">
+        {mode!=="admin" && <div className="inline-flex items-center justify-center mb-4 fade-up">
           <span className="w-12 h-12 rounded-xl bg-ink text-white grid place-items-center shadow-card">
             <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
               <path d="M12 2.6l8 4.6v9.2l-8 4.6-8-4.6V7.2l8-4.6Z"/>
               <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/>
             </svg>
           </span>
-        </div>
+        </div>}
 
-        <h1 className="font-jua text-4xl md:text-5xl text-ink tracking-tight fade-up">{data.brandName}</h1>
-        <p className="mt-3 text-muted font-gaegu text-sm tracking-wide fade-up">{data.tagline}</p>
+        <h1 className={"font-jua "+(mode==="admin"?"text-2xl":"text-4xl md:text-5xl")+" text-ink tracking-tight fade-up"}>{data.brandName}</h1>
+        {mode!=="admin" && <p className="mt-3 text-muted font-gaegu text-sm tracking-wide fade-up">{data.tagline}</p>}
 
-        <div className="mt-5 flex justify-center no-print">
+        <div className={(mode==="admin"?"mt-3":"mt-5")+" flex justify-center no-print"}>
           <button onClick={onToggleAdmin}
-            className={`text-xs font-bold px-4 py-2 rounded-full border transition
+            className={`tap text-xs font-bold px-4 py-2 rounded-full border transition
               ${mode==="admin"
                 ? "bg-ink text-white border-ink"
                 : "bg-white text-muted border-line hover:border-sprout-ring hover:text-sprout-deep"}`}>
@@ -753,9 +757,9 @@ function ParentView({ data, setData, onStudentAction }){
             <input value={code} onChange={e=>{ setCode(e.target.value); setErr(""); }}
               onKeyDown={e=> e.key==="Enter" && lookup()}
               placeholder="학생 코드 입력" inputMode="numeric"
-              className="flex-1 px-3 py-3 rounded-xl border border-line bg-paper text-center font-jua tracking-widest" />
+              className="flex-1 min-w-0 px-3 py-3 rounded-xl border border-line bg-paper text-center font-jua tracking-widest" />
             <button onClick={lookup}
-              className="px-5 py-3 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">조회</button>
+              className="shrink-0 whitespace-nowrap px-5 py-3 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">조회</button>
           </div>
           {err && <p className="text-coral text-sm mt-3 font-medium">{err}</p>}
         </div>
@@ -768,7 +772,7 @@ function ParentView({ data, setData, onStudentAction }){
   const activeTermId = termView==="all" ? null : (termView==="current" ? data.currentTermId : termView);
   const shownTerms = termView==="all" ? orderedDesc : terms.filter(t=>t.id===activeTermId);
 
-  const tabCls = (on) => `px-4 py-2 rounded-full text-sm font-bold border transition ${on ? "bg-sprout text-white border-sprout shadow-card" : "bg-white text-muted border-line hover:border-sprout-ring"}`;
+  const tabCls = (on) => `tap px-4 py-2 rounded-full text-sm font-bold border transition ${on ? "bg-sprout text-white border-sprout shadow-card" : "bg-white text-muted border-line hover:border-sprout-ring"}`;
 
   const handleSave = () => {
     const el = captureRef.current;
@@ -783,12 +787,12 @@ function ParentView({ data, setData, onStudentAction }){
     <div className="max-w-2xl mx-auto px-4 pb-24 fade-up">
       {/* 상단 버튼 */}
       <div className="flex justify-between items-center gap-2 mb-3 no-print">
-        <button onClick={reset} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">다른 코드로 조회</button>
+        <button onClick={reset} className="tap shrink-0 whitespace-nowrap text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">다른 코드로 조회</button>
         <div className="flex flex-wrap gap-2 justify-end">
-          <button onClick={()=>exportStudentPDF(data, cls, student, shownTerms)} className="text-xs font-bold px-3 py-2 rounded-full bg-sprout text-white hover:bg-sprout-deep transition">PDF 저장</button>
-          <button onClick={()=>exportStudentText(data, cls, student, shownTerms)} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">텍스트</button>
-          <button onClick={handleSave} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">이미지</button>
-          <button onClick={()=>window.print()} className="text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">인쇄</button>
+          <button onClick={()=>exportStudentPDF(data, cls, student, shownTerms)} className="tap text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">PDF 저장</button>
+          <button onClick={()=>exportStudentText(data, cls, student, shownTerms)} className="tap text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">텍스트</button>
+          <button onClick={handleSave} className="tap text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">이미지</button>
+          <button onClick={()=>window.print()} className="tap text-xs font-bold px-3 py-2 rounded-full bg-white border border-line text-muted hover:border-sprout-ring transition">인쇄</button>
         </div>
       </div>
 
@@ -821,7 +825,7 @@ function ParentView({ data, setData, onStudentAction }){
             {cls.notices.map((n,i)=>(
               <li key={i} className="text-ink text-sm leading-relaxed flex gap-2">
                 <span className="text-sun">·</span>
-                <SafeNotice text={n} />
+                <span className="flex-1 min-w-0"><SafeNotice text={n} /></span>
               </li>
             ))}
           </ul>
@@ -910,6 +914,7 @@ function AdminLogin({ password, onOk }){
 }
 
 /* 공용 인풋 스타일 */
+const dangerBtn = "tap px-3 rounded-xl border border-line bg-white text-coral text-xs font-bold whitespace-nowrap shrink-0 hover:border-coral transition";
 const inputCls = "w-full px-3 py-2.5 rounded-xl border border-line bg-paper focus:border-sprout-ring focus:bg-white transition";
 
 /* ── 기록 관리 (기간별) ── */
@@ -1039,8 +1044,8 @@ function FeedbackManager({ data, setData, classId }){
 
       {/* 입력 방식 토글 */}
       <div className="flex gap-2 mb-5">
-        <button onClick={()=>setBulk(false)} className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${!bulk?"bg-ink text-white border-ink":"bg-white text-muted border-line hover:border-sprout-ring"}`}>개별 입력</button>
-        <button onClick={()=>setBulk(true)}  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${bulk?"bg-ink text-white border-ink":"bg-white text-muted border-line hover:border-sprout-ring"}`}>일괄 입력 (반 전체)</button>
+        <button onClick={()=>setBulk(false)} className={`tap px-4 py-2 rounded-full text-sm font-bold border transition ${!bulk?"bg-ink text-white border-ink":"bg-white text-muted border-line hover:border-sprout-ring"}`}>개별 입력</button>
+        <button onClick={()=>setBulk(true)}  className={`tap px-4 py-2 rounded-full text-sm font-bold border transition ${bulk?"bg-ink text-white border-ink":"bg-white text-muted border-line hover:border-sprout-ring"}`}>일괄 입력 (반 전체)</button>
       </div>
 
       {bulk ? (
@@ -1054,8 +1059,8 @@ function FeedbackManager({ data, setData, classId }){
             const cnt = s.feedbacks.filter(f=>(f.termId||"")===termId).length;
             return (
               <button key={s.id} onClick={()=>{ if(s.id!==studentId && leave()){setStudentId(s.id); resetForm();} }}
-                className={`px-3.5 py-2 rounded-xl text-sm font-bold border transition ${studentId===s.id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line hover:border-sprout-ring"}`}>
-                {s.name}<span className="ml-1.5 text-xs opacity-70">{cnt}</span>
+                className={`tap px-4 py-2 rounded-full text-sm font-bold border transition ${studentId===s.id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line hover:border-sprout-ring"}`}>
+                {s.name}<span className="ml-1.5 text-xs opacity-80">{cnt}건</span>
               </button>
             );
           })}
@@ -1128,7 +1133,7 @@ function FeedbackManager({ data, setData, classId }){
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">
                       <button onClick={()=>startEdit(f)} className="text-xs font-bold text-sprout-deep hover:underline">수정</button>
-                      <button onClick={()=>remove(f.id)} className="text-xs font-bold text-coral hover:underline">삭제</button>
+                      <button onClick={()=>remove(f.id)} className={dangerBtn}>삭제</button>
                     </div>
                   </div>
                 );
@@ -1210,15 +1215,15 @@ function StudentManager({ data, setData, classId, onStudentAction }){
             <div className="flex items-center justify-between mb-3">
               <input value={s.name} onChange={e=>upd(s.id,"name",e.target.value)}
                 className="font-jua text-lg text-ink bg-transparent border-b border-transparent hover:border-line focus:border-sprout-ring w-40" />
-              <button onClick={()=>remove(s.id)} className="text-xs font-bold text-coral hover:underline">삭제</button>
+              <button onClick={()=>remove(s.id)} className={dangerBtn}>삭제</button>
             </div>
             <div className="grid sm:grid-cols-3 gap-3">
               <div>
                 <label className="text-xs text-muted font-bold">열람 코드 (필수)</label>
-                <div className="flex gap-1.5">
+                <div className="flex items-start gap-1.5">
                   <CodeInput value={s.code} onSave={v=>upd(s.id,"code",v)} data={data} studentId={s.id} />
-                  <button onClick={async()=>{try{await navigator.clipboard.writeText(s.code||"");alert("코드를 복사했습니다.");}catch{alert("복사하지 못했습니다. 코드를 직접 선택해 주세요.");}}} className="text-xs">복사</button>
-                  <button onClick={()=>genCode(s.id)} className="shrink-0 px-2.5 rounded-xl bg-sprout-soft text-sprout-deep text-xs font-bold hover:bg-sprout-ring transition whitespace-nowrap">자동</button>
+                  <button onClick={async()=>{try{await navigator.clipboard.writeText(s.code||"");alert("코드를 복사했습니다.");}catch{alert("복사하지 못했습니다. 코드를 직접 선택해 주세요.");}}} className="tap shrink-0 px-2.5 rounded-xl border border-line bg-white text-xs font-bold whitespace-nowrap hover:border-sprout-ring transition">복사</button>
+                  <button onClick={()=>genCode(s.id)} className="tap shrink-0 px-2.5 rounded-xl bg-sprout-soft text-sprout-deep text-xs font-bold hover:bg-sprout-ring transition whitespace-nowrap">자동</button>
                 </div>
               </div>
               <div>
@@ -1259,7 +1264,7 @@ function NoticeManager({ data, setData, classId }){
         {cls.notices.map((n,i)=>(
           <div key={i} className="bg-white rounded-xl border border-line p-3 flex gap-2">
             <input value={n} onChange={e=>upd(i,e.target.value)} className="flex-1 bg-transparent text-sm" />
-            <button onClick={()=>remove(i)} className="text-xs font-bold text-coral hover:underline shrink-0">삭제</button>
+            <button onClick={()=>remove(i)} className={dangerBtn}>삭제</button>
           </div>
         ))}
         {cls.notices.length===0 && <p className="text-muted text-sm text-center py-4">공지가 없어요.</p>}
@@ -1288,10 +1293,11 @@ function ScheduleManager({ data, setData, classId }){
     if(!label || !confirm(`기간 미지정 일정 ${unassigned.length}개를 '${label}'(으)로 지정할까요?`))return;
     setData(prev=>{const d=clone(prev); d.classes[classId].schedule.forEach(r=>{if(!d.terms.some(t=>t.id===r.termId))r.termId=target;}); return d;});
   };
-  const tabCls = on => `px-3 py-1.5 rounded-full text-xs font-bold border transition ${on ? "bg-sprout text-white border-sprout" : "bg-white text-muted border-line hover:border-sprout-ring"}`;
+  const tabCls = on => `tap px-4 py-2 rounded-full text-sm font-bold border transition ${on ? "bg-sprout text-white border-sprout" : "bg-white text-muted border-line hover:border-sprout-ring"}`;
   return (
     <div>
-      <div className="flex flex-wrap gap-2 mb-3" role="group" aria-label="일정 기간">
+      <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="일정 기간">
+        <span className="text-xs font-bold text-muted mr-1">기간</span>
         {terms.map(t=>(
           <button key={t.id} onClick={()=>setView(t.id)} className={tabCls(viewTerm===t.id)}>
             {t.label}{t.id===data.currentTermId?" (현재)":""} · {cls.schedule.filter(r=>r.termId===t.id).length}
@@ -1323,7 +1329,7 @@ function ScheduleManager({ data, setData, classId }){
               {!known(r.termId) && <option value="">기간 미지정</option>}
               {terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
-            <button onClick={()=>remove(r.id)} className="text-xs font-bold text-coral hover:underline sm:col-span-1">삭제</button>
+            <button onClick={()=>remove(r.id)} className={dangerBtn+" sm:col-span-1"}>삭제</button>
           </div>
         ))}
         {rows.length===0 && <p className="text-muted text-sm text-center py-4">이 기간의 일정이 없어요.</p>}
@@ -1431,7 +1437,7 @@ function ClassManager({ data, setData }){
           <div key={id} className="bg-white rounded-2xl border border-line p-3 flex items-center gap-2">
             <input value={cls.name} onChange={e=>rename(id,e.target.value)} className="flex-1 bg-transparent font-bold text-ink text-sm min-w-0" />
             <span className="text-xs text-muted shrink-0">학생 {cls.students.length}명</span>
-            <button onClick={()=>remove(id)} className="text-xs font-bold text-coral hover:underline shrink-0">삭제</button>
+            <button onClick={()=>remove(id)} className={dangerBtn}>삭제</button>
           </div>
         ))}
       </div>
@@ -1478,7 +1484,7 @@ function TermManager({ data, setData }){
               : <button onClick={()=>setCurrent(t.id)} className="text-xs font-bold text-sprout-deep hover:underline shrink-0">현재로</button>}
             <button onClick={()=>move(t.id,-1)} className="text-sm text-muted hover:text-ink shrink-0 px-1">▲</button>
             <button onClick={()=>move(t.id,1)} className="text-sm text-muted hover:text-ink shrink-0 px-1">▼</button>
-            <button onClick={()=>remove(t.id)} className="text-xs font-bold text-coral hover:underline shrink-0">삭제</button>
+            <button onClick={()=>remove(t.id)} className={dangerBtn}>삭제</button>
           </div>
         ))}
       </div>
@@ -1521,49 +1527,57 @@ function AdminPanel({ data, setData, saveState, onStudentAction }){
   const [tab, setTab] = useState("feedback");
   const activeClassId = data.classes[classId] ? classId : classIds[0];
 
+  // 자주 쓰는 메뉴는 항상 보이고, 가끔 쓰는 메뉴는 '설정'에 묶습니다.
   const tabs = [
     ["feedback","기록 관리"],
+    ["students","학생 관리"],
+    ["schedule","일정 관리"],
+    ["notices","공지 관리"],
+    ["board","게시판"],
+  ];
+  const moreTabs = [
     ["classes","반 관리"],
     ["terms","기간 관리"],
-    ["students","학생 관리"],
     ["trash","학생 휴지통"],
-    ["notices","공지 관리"],
-    ["schedule","일정 관리"],
-    ["board","게시판"],
     ["data","데이터·설정"],
   ];
+  const [showMore, setShowMore] = useState(false);
+  const moreOpen = showMore || moreTabs.some(([k])=>k===tab);
   const perClass = tab==="feedback" || tab==="students" || tab==="notices" || tab==="schedule" || tab==="board";
-
-  const saveBadge = {
-    saving: { t:"저장 중…", c:"bg-sun-soft text-[#a9781a]" },
-    saved:  { t:"저장됨",   c:"bg-sprout-soft text-sprout-deep" },
-    error:  { t:"저장 실패", c:"bg-coral-soft text-[#c04a34]" },
-  }[saveState];
+  const tabBtn = (k,label) => (
+    <button key={k} onClick={()=>{if(k!==tab && canLeave())setTab(k);}}
+      className={`tap px-4 py-2 rounded-full text-sm font-bold border transition ${tab===k ? "bg-ink text-white border-ink" : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
+      {label}
+    </button>
+  );
 
   return (
     <div className="max-w-3xl mx-auto px-4 pb-24 fade-up">
-      <div className="flex flex-wrap items-center gap-2 mb-4 no-print">
-        {tabs.map(([k,label])=>(
-          <button key={k} onClick={()=>{if(k!==tab && canLeave())setTab(k);}}
-            className={`px-4 py-2 rounded-full text-sm font-bold border transition ${tab===k ? "bg-ink text-white border-ink" : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
-            {label}
-          </button>
-        ))}
-        {saveBadge && (
-          <span className={`ml-auto text-xs font-bold px-3 py-1.5 rounded-full ${saveBadge.c}`}>{saveBadge.t}</span>
-        )}
+      <div className="flex flex-wrap items-center gap-2 mb-2 no-print">
+        {tabs.map(([k,label])=>tabBtn(k,label))}
+        <button onClick={()=>setShowMore(v=>!v)} aria-expanded={moreOpen}
+          className={`tap px-4 py-2 rounded-full text-sm font-bold border transition ${moreOpen ? "bg-paper text-ink border-ink" : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
+          설정 {moreOpen ? "▴" : "▾"}
+        </button>
       </div>
+      {moreOpen && (
+        <div className="flex flex-wrap items-center gap-2 mb-2 p-2 rounded-2xl bg-white/70 border border-line no-print">
+          {moreTabs.map(([k,label])=>tabBtn(k,label))}
+        </div>
+      )}
 
       {perClass && classIds.length>1 && (
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex flex-wrap items-center gap-2 mt-3 mb-4">
+          <span className="text-xs font-bold text-muted mr-1">반</span>
           {classIds.map(id=>(
             <button key={id} onClick={()=>{if(id!==classId && canLeave())setClassId(id);}}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${activeClassId===id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line"}`}>
+              className={`tap px-4 py-2 rounded-full text-sm font-bold border transition ${activeClassId===id ? "bg-sprout text-white border-sprout" : "bg-white text-ink border-line hover:border-sprout-ring"}`}>
               {data.classes[id].name}
             </button>
           ))}
         </div>
       )}
+      {!(perClass && classIds.length>1) && <div className="mb-4" />}
 
       {perClass && <MissingRecordsPanel data={data} classId={activeClassId} />}
 
@@ -1807,8 +1821,12 @@ function App(){
       {operationBusy&&<p role="status" className="sticky top-0 z-50 bg-white p-4 font-bold">최신 기록을 확인하고 저장 중입니다. 완료될 때까지 기다려 주세요.</p>}
       <fieldset disabled={operationBusy} className="min-w-0 m-0 p-0 border-0">
       <Header data={headerData} mode={mode} onToggleAdmin={toggleAdmin} />
-      {saveState && <div role="status" className={"max-w-3xl mx-auto px-4 mb-4 text-sm no-print"+(saveState==="error"?" sticky top-2 z-50":"")}>
-        <b className={saveState==="error"?"text-coral":""}>{saveState==="saving"?"저장 중 · 창을 닫지 마세요":saveState==="saved"?"저장됨":"⚠️ 저장되지 않았습니다 · 이 변경은 아직 서버에 반영되지 않았어요"}</b>
+      {(saveState==="saving" || saveState==="saved") && <div role="status" aria-live="polite"
+        className={"fixed bottom-4 right-4 z-40 px-4 py-2.5 rounded-full text-sm font-bold shadow-card border no-print "+(saveState==="saving"?"bg-sun-soft text-ink border-sun":"bg-sprout-soft text-sprout-deep border-sprout-ring")}>
+        {saveState==="saving"?"저장 중 · 창을 닫지 마세요":"✓ 저장됨"}
+      </div>}
+      {saveState==="error" && <div role="status" className="max-w-3xl mx-auto px-4 mb-4 text-sm no-print sticky top-2 z-50">
+        {saveState==="error" && <b className="text-coral">⚠️ 저장되지 않았습니다 · 이 변경은 아직 서버에 반영되지 않았어요</b>}
         {saveState==="error" && <div className="bg-coral-soft p-3 rounded-xl mt-2 border border-coral">
           <p className="mb-2">{saveError}</p>
           <button onClick={flush} className="font-bold underline mr-4">다시 저장</button>
