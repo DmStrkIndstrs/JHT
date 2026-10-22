@@ -483,68 +483,126 @@ function exportStudentText(data, cls, student, terms){
   downloadText(`${student.name}_포트폴리오_${todayISO()}.txt`, buildReportText(data, cls, student, terms));
 }
 
-function buildReportElement(data, cls, student, terms){
+const PDF_THEME = { accent:"#1f9d6b", accentDeep:"#16875a", soft:"#e2f3ea", ink:"#26302b", muted:"#64706a", line:"#e5ebe6", paper:"#f4f7f3", font:"'Noto Sans KR',sans-serif" };
+/* PDF 포트폴리오: 내용을 블록 단위로 A4 페이지에 나눠 담고 페이지마다 따로 그립니다.
+   한 장의 긴 이미지를 자르면 글자가 페이지 경계에서 잘리고, 휴대폰은 큰 캔버스를 그리지 못합니다. */
+const PDF_PAGE = { w:794, h:1123, pad:56, footer:44 };   // A4 @96dpi
+function reportBlocks(data, cls, student, terms){
+  const T = PDF_THEME;
   const esc = (s)=> String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  const wrap = document.createElement("div");
-  wrap.style.cssText = "position:fixed; left:-99999px; top:0; width:760px; background:#ffffff; padding:44px; box-sizing:border-box; font-family:'Noto Sans KR',sans-serif; color:#1f2937;";
-  let html = "";
-  html += `<div style="border-bottom:3px solid #111827; padding-bottom:14px; margin-bottom:22px;">
-    <div style="font-size:13px; color:#6b7280; letter-spacing:1px;">${esc(data.brandName)}</div>
-    <div style="font-size:26px; font-weight:800; margin-top:4px; color:#111827;">${esc(student.name)} 학생 학습 포트폴리오</div>
-    <div style="font-size:13px; color:#6b7280; margin-top:8px;">${esc(cls.name)} · 생성일 ${esc(todayISO())}</div>
-  </div>`;
-  (terms||[]).forEach(term=>{
+  const ratingColor = (k)=> k==="cheer" ? "#b23a26" : k==="soso" ? "#8a6414" : T.accentDeep;
+  const meter = (label, v)=>{
+    if(v==null) return `<div style="flex:1;"><div style="font-size:12px;color:${T.muted};">${label}</div><div style="font-size:14px;color:${T.muted};margin-top:6px;">미기록</div></div>`;
+    const w = Math.max(0, Math.min(100, Number(v)||0));
+    return `<div style="flex:1;">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:${T.muted};"><span>${label}</span><b style="color:${T.ink};font-size:14px;">${w}%</b></div>
+      <div style="height:8px;border-radius:4px;background:${T.line};margin-top:6px;overflow:hidden;"><div style="height:8px;width:${w}%;background:${T.accent};border-radius:4px;"></div></div>
+    </div>`;
+  };
+  const blocks = [];
+  const shown = (terms||[]).filter(t=>hasTermRecord(student,t.id));
+  const total = shown.reduce((n,t)=>n+(student.feedbacks||[]).filter(f=>f.termId===t.id).length,0);
+  blocks.push({ html:`<div style="padding-bottom:26px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid ${T.ink};padding-bottom:16px;">
+      <div>
+        <div style="font-size:12px;letter-spacing:2px;color:${T.accent};font-weight:700;">LEARNING PORTFOLIO</div>
+        <div style="font-size:30px;font-weight:700;color:${T.ink};margin-top:6px;">${esc(student.name)} <span style="font-size:16px;font-weight:500;color:${T.muted};">학생</span></div>
+      </div>
+      <div style="text-align:right;font-size:12px;color:${T.muted};line-height:1.7;">
+        <div style="font-weight:700;color:${T.ink};font-size:13px;">${esc(data.brandName)}</div>
+        <div>${esc(cls.name)}</div><div>발행일 ${esc(fmtKDate(todayISO()))}</div>
+      </div>
+    </div>
+    <div style="margin-top:14px;font-size:13px;color:${T.muted};">
+      <b style="color:${T.accentDeep};">${shown.length===1?esc(shown[0].label):"기간 "+shown.length+"개"}</b><span style="margin:0 8px;">·</span>개별 기록 ${total}건
+    </div>
+  </div>` });
+  if(student.summary) blocks.push({ html:`<div style="padding-bottom:24px;">
+    <div style="border-left:4px solid ${T.accent};background:${T.paper};border-radius:0 12px 12px 0;padding:14px 18px;">
+      <div style="font-size:12px;font-weight:700;color:${T.accentDeep};margin-bottom:6px;">선생님 종합 한마디</div>
+      <div style="font-size:14px;line-height:1.75;color:${T.ink};white-space:pre-line;">${esc(student.summary)}</div>
+    </div></div>` });
+  shown.forEach(term=>{
+    const m = metricsFor(student,term.id);
     const note = (student.termNotes||{})[term.id] || "";
-    const fbs = (student.feedbacks||[]).filter(f=>(f.termId||"")===term.id).sort((a,b)=>(a.date<b.date?1:-1));
-    if(!hasTermRecord(student,term.id)) return;
-    html += `<div style="margin-bottom:26px;">
-      <div style="font-size:18px; font-weight:800; color:#111827; border-left:5px solid #111827; padding-left:11px; margin-bottom:13px;">${esc(term.label)}</div>`;
-    const m=metricsFor(student,term.id);
-    html += `<p style="font-size:13px">과제 수행률: ${esc(m.homeworkRate==null?"미기록":m.homeworkRate+"%")} · 출석률: ${esc(m.attendanceRate==null?"미기록":m.attendanceRate+"%")}</p>`;
-    if(note){
-      html += `<div style="background:#f3f4f6; border-radius:10px; padding:14px 16px; margin-bottom:12px; white-space:pre-line; line-height:1.7; font-size:14px;">${esc(note)}</div>`;
-    }
+    const fbs = (student.feedbacks||[]).filter(f=>f.termId===term.id).sort((a,b)=>(a.date<b.date?1:-1));
+    blocks.push({ keepWithNext:true, html:`<div style="padding-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <span style="width:6px;height:22px;background:${T.accent};border-radius:3px;display:inline-block;"></span>
+        <span style="font-size:19px;font-weight:700;color:${T.ink};">${esc(term.label)}</span>
+      </div>
+      <div style="display:flex;gap:28px;border:1px solid ${T.line};border-radius:12px;padding:14px 18px;">${meter("과제 수행률",m.homeworkRate)}${meter("출석률",m.attendanceRate)}</div>
+    </div>` });
+    if(note) blocks.push({ html:`<div style="padding-bottom:14px;">
+      <div style="background:${T.paper};border-radius:12px;padding:16px 18px;">
+        <div style="font-size:12px;font-weight:700;color:${T.accentDeep};margin-bottom:6px;">기간 종합 기록</div>
+        <div style="font-size:14px;line-height:1.8;color:${T.ink};white-space:pre-line;">${esc(note)}</div>
+      </div></div>` });
     fbs.forEach(f=>{
-      html += `<div style="border:1px solid #e5e7eb; border-radius:10px; padding:11px 14px; margin-bottom:8px;">
-        <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">${esc(fmtKDate(f.date))} · ${esc(f.category)} · ${esc(ratingLabelOf(data,f.rating))}</div>
-        <div style="font-size:14px; line-height:1.6;">${esc(f.content)}</div>
-      </div>`;
+      const fg = ratingColor(f.rating);
+      blocks.push({ html:`<div style="padding-bottom:8px;">
+        <div style="border:1px solid ${T.line};border-radius:12px;padding:12px 16px;">
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:${T.muted};margin-bottom:6px;">
+            <b style="color:${T.ink};">${esc(fmtKDate(f.date))}</b><span>·</span><span>${esc(f.category)}</span>
+            <span style="margin-left:auto;color:${fg};font-weight:700;">${esc(ratingLabelOf(data,f.rating))}</span>
+          </div>
+          <div style="font-size:14px;line-height:1.7;color:${T.ink};white-space:pre-line;">${esc(f.content)}</div>
+        </div></div>` });
     });
-    html += `</div>`;
+    blocks.push({ html:`<div style="height:18px;"></div>` });
   });
-  html += `<div style="text-align:center; color:#9ca3af; font-size:12px; margin-top:28px; border-top:1px solid #e5e7eb; padding-top:14px;">${esc(data.brandName)} · 학습 포트폴리오</div>`;
-  if(student.summary) html += `<p style="white-space:pre-line">${esc(student.summary)}</p>`;
-  wrap.innerHTML = html;
-  return wrap;
+  return blocks;
 }
 
-function exportStudentPDF(data, cls, student, terms){
+// Measure every block at print width, then pack blocks into pages without splitting them.
+function layoutReportPages(blocks){
+  const P = PDF_PAGE, inner = P.w - P.pad*2, avail = P.h - P.pad - P.footer - 24;
+  const host = document.createElement("div");
+  host.style.cssText = `position:absolute;left:-10000px;top:0;width:${inner}px;font-family:${PDF_THEME.font};`;
+  host.innerHTML = blocks.map(b=>`<div>${b.html}</div>`).join("");
+  document.body.appendChild(host);
+  const heights = [...host.children].map(el=>el.getBoundingClientRect().height);
+  document.body.removeChild(host);
+  const pages = [[]]; let used = 0;
+  blocks.forEach((b,i)=>{
+    const need = heights[i] + (b.keepWithNext && i+1<blocks.length ? heights[i+1] : 0);
+    if(used>0 && used+Math.min(need,avail)>avail){ pages.push([]); used = 0; }
+    pages[pages.length-1].push(b.html); used += heights[i];
+  });
+  if(!pages[pages.length-1].length) pages.pop();
+  return pages;
+}
+
+function buildReportPage(data, student, htmls, index, count){
+  const P = PDF_PAGE, T = PDF_THEME;
+  const page = document.createElement("div");
+  page.style.cssText = `position:absolute;left:-10000px;top:0;width:${P.w}px;height:${P.h}px;background:#ffffff;box-sizing:border-box;padding:${P.pad}px ${P.pad}px 0;font-family:${T.font};color:${T.ink};overflow:hidden;`;
+  page.innerHTML = `<div style="position:absolute;left:0;top:0;right:0;height:6px;background:${T.accent};"></div>`
+    + htmls.join("")
+    + `<div style="position:absolute;left:${P.pad}px;right:${P.pad}px;bottom:22px;display:flex;justify-content:space-between;font-size:11px;color:${T.muted};border-top:1px solid ${T.line};padding-top:10px;">
+        <span>${String(data.brandName).replace(/</g,"&lt;")} · ${String(student.name).replace(/</g,"&lt;")} 학습 포트폴리오</span><span>${index+1} / ${count}</span></div>`;
+  return page;
+}
+
+async function exportStudentPDF(data, cls, student, terms){
   const has = (terms||[]).some(t=>hasTermRecord(student,t.id));
   if(!has){ alert("내보낼 기록이 없어요."); return; }
   if(!window.html2canvas || !window.jspdf){ alert("PDF 모듈을 불러오지 못했어요. 새로고침 후 다시 시도해 주세요."); return; }
-  const el = buildReportElement(data, cls, student, terms);
-  document.body.appendChild(el);
-  window.html2canvas(el, { backgroundColor:"#ffffff", scale:2, useCORS:true, logging:false })
-    .then(canvas=>{
-      const jsPDF = window.jspdf.jsPDF;
-      const pdf = new jsPDF("p","mm","a4");
-      const pageW = 210, pageH = 297;
-      const imgW = pageW;
-      const imgH = canvas.height * imgW / canvas.width;
-      const imgData = canvas.toDataURL("image/png");
-      let position = 0, heightLeft = imgH;
-      pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
-      heightLeft -= pageH;
-      while(heightLeft > 0){
-        position -= pageH;
-        pdf.addPage();
-        pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
-        heightLeft -= pageH;
-      }
-      pdf.save(`${student.name}_포트폴리오_${todayISO()}.pdf`);
-    })
-    .catch(e=>{ console.error(e); alert("PDF 생성에 실패했어요. 다시 시도해 주세요."); })
-    .finally(()=>{ document.body.removeChild(el); });
+  try {
+    if(document.fonts && document.fonts.ready) await document.fonts.ready;
+    const pages = layoutReportPages(reportBlocks(data, cls, student, terms));
+    const pdf = new window.jspdf.jsPDF("p","mm","a4");
+    for(let i=0;i<pages.length;i++){
+      const el = buildReportPage(data, student, pages[i], i, pages.length);
+      document.body.appendChild(el);
+      try {
+        const canvas = await window.html2canvas(el, { backgroundColor:"#ffffff", scale:2, useCORS:true, logging:false });
+        if(i>0) pdf.addPage();
+        pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, 210, 297);
+      } finally { document.body.removeChild(el); }
+    }
+    pdf.save(`${student.name}_포트폴리오_${todayISO()}.pdf`);
+  } catch(e) { console.error(e); alert("PDF 생성에 실패했어요. 다시 시도해 주세요."); }
 }
 
 /* ── 작은 공용 컴포넌트 ── */
