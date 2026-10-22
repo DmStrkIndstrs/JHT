@@ -15,6 +15,13 @@ async function run(){
   assert.deepEqual(core.merge(base,local,remote),{students:[{id:'a',note:'local'},{id:'b',note:'remote'}]});
   remote.students[0].note='conflict';assert.throws(()=>core.merge(base,local,remote));
   assert.throws(()=>core.merge(base,{students:[]},remote));
+  // Firestore returns map keys in its own order; deletes must not look like conflicts.
+  const sorted=v=>Array.isArray(v)?v.map(sorted):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,sorted(v[k])])):v;
+  const ordered={classes:{a:{name:'A',schedule:[{id:'s1',date:'d',day:'월',content:'x',homework:''}]},b:{name:'B',schedule:[]}}};
+  const noRow=structuredClone(ordered);noRow.classes.a.schedule=[];
+  assert.deepEqual(core.merge(ordered,noRow,sorted(ordered)).classes.a.schedule,[]);
+  const noClass=structuredClone(ordered);delete noClass.classes.b;
+  assert.deepEqual(Object.keys(core.merge(ordered,noClass,sorted(ordered)).classes),['a']);
   const students=[{id:'a',name:'동명',code:'1111'},{id:'b',name:'동명',code:'2222'}];
   assert.equal(core.pastePlan('동명\t내용',students).errors.length,1);
   assert.equal(core.pastePlan('1111\t쉼표, 유지',students).rows[0].content,'쉼표, 유지');
@@ -72,6 +79,18 @@ async function run(){
     const date=page.getByLabel('수업 날짜').last();await date.fill('2026-09-11');await date.blur();
     await page.waitForTimeout(800);
     assert.equal(await page.evaluate(()=>Object.values(__remote.classes)[0].schedule.at(-1).day),'금');
+    assert.equal(await page.evaluate(()=>Object.values(__remote.classes)[0].schedule.at(-1).termId),await page.evaluate(()=>__remote.currentTermId));
+    // Schedules are split by period; existing rows without a period stay reachable.
+    assert.equal(await page.getByLabel('수업 날짜').count(),1);
+    await page.getByRole('button',{name:/^기간 미지정/}).click();
+    assert.equal(await page.getByLabel('수업 날짜').count(),2);
+    // Server copy comes back with Firestore's key order; delete must still save.
+    await page.evaluate(()=>{const sort=v=>Array.isArray(v)?v.map(sort):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,sort(v[k])])):v;window.__remote=sort(window.__remote);});
+    await page.getByRole('button',{name:/\(현재\)/}).click();
+    await page.getByRole('button',{name:'삭제',exact:true}).last().click();
+    await page.waitForTimeout(800);
+    assert.equal(await page.evaluate(()=>Object.values(__remote.classes)[0].schedule.length),2);
+    assert.equal(await page.getByRole('button',{name:'다시 저장',exact:true}).count(),0);
     await page.getByRole('button',{name:'기록 관리',exact:true}).click();
     await page.evaluate(()=>window.__fail=true);
     const note=page.locator('textarea').first();await note.fill('실패 후 재시도');

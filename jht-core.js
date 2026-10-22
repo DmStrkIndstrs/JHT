@@ -1,8 +1,11 @@
 /* Shared, dependency-free data helpers. */
 (function(root) {
   const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-  const equal = (a,b) => JSON.stringify(a) === JSON.stringify(b);
   const object = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+  // Firestore returns map keys in its own order, so compare with sorted keys.
+  // Otherwise identical records look edited and every delete is refused.
+  const canonical = v => Array.isArray(v) ? v.map(canonical) : object(v) ? Object.keys(v).sort().reduce((o,k)=>(o[k]=canonical(v[k]),o),{}) : v;
+  const equal = (a,b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
   const entities = v => Array.isArray(v) && v.every(x=>object(x) && typeof x.id==='string') && new Set(v.map(x=>x.id)).size===v.length;
   function merge(base, local, remote, path='데이터') {
     if(equal(local,base)) return copy(remote);
@@ -48,7 +51,7 @@
     if(!entities(data.terms)||!data.terms.length||!data.terms.every(x=>typeof x.label==='string')||!data.terms.some(x=>x.id===data.currentTermId)) fail();
     const codes=new Set(), terms=new Set(data.terms.map(x=>x.id));
     for(const cls of Object.values(data.classes)) {
-      if(!object(cls)||typeof cls.name!=='string'||!entities(cls.students)||!Array.isArray(cls.notices)||!cls.notices.every(x=>typeof x==='string')||!entities(cls.schedule)||!cls.schedule.every(x=>['date','day','content','homework'].every(k=>typeof x[k]==='string'))) fail();
+      if(!object(cls)||typeof cls.name!=='string'||!entities(cls.students)||!Array.isArray(cls.notices)||!cls.notices.every(x=>typeof x==='string')||!entities(cls.schedule)||!cls.schedule.every(x=>['date','day','content','homework'].every(k=>typeof x[k]==='string')&&(x.termId==null||typeof x.termId==='string'))) fail();
       for(const s of cls.students) {
         if(typeof s.name!=='string'||typeof s.code!=='string'||!entities(s.feedbacks)||!s.feedbacks.every(f=>typeof f.content==='string'&&typeof f.date==='string'&&typeof f.rating==='string'&&typeof f.category==='string'&&terms.has(f.termId))||!object(s.termNotes)||!Object.values(s.termNotes).every(x=>typeof x==='string')) fail();
         for(const k of ['homeworkRate','attendanceRate']) if(s[k]!=null && (!Number.isFinite(s[k])||s[k]<0||s[k]>100)) fail();
@@ -110,7 +113,7 @@
     return data;
   }
 
-  const api={merge,localDate,weekday,pastePlan,validate,checkCodes,studentOperation};
+  const api={equal,merge,localDate,weekday,pastePlan,validate,checkCodes,studentOperation};
   if(typeof module!=='undefined') module.exports=api;
   root.JHTCore=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

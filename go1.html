@@ -840,11 +840,14 @@ function ParentView({ data, setData, onStudentAction }){
       </div>
 
       {/* 수업 일정 */}
-      {(cls.schedule||[]).length>0 && (
+      {(()=>{
+        const termSchedule = activeTermId ? scheduleForTerm(cls.schedule, activeTermId) : (cls.schedule||[]);
+        const termLabel = activeTermId && (terms.find(t=>t.id===activeTermId)||{}).label;
+        return termSchedule.length>0 && (
         <div className="bg-white rounded-2xl border border-line shadow-card p-6 mt-5">
-          <h3 className="font-jua text-xl text-ink mb-4">수업 일정</h3>
+          <h3 className="font-jua text-xl text-ink mb-4">수업 일정{termLabel && <span className="text-sm text-muted font-noto"> · {termLabel}</span>}</h3>
           <div className="space-y-2">
-            {cls.schedule.map(row=>{
+            {termSchedule.map(row=>{
               const isToday = row.date===todayISO() || row.date===todayMD();
               return (
                 <div key={row.id}
@@ -862,7 +865,8 @@ function ParentView({ data, setData, onStudentAction }){
             })}
           </div>
         </div>
-      )}
+      );
+      })()}
 
       <div className="mt-5 no-print">
         <h3 className="font-jua text-xl text-ink mb-3">게시판</h3>
@@ -1257,25 +1261,64 @@ function NoticeManager({ data, setData, classId }){
 }
 
 /* ── 일정 관리 ── */
+// 일정은 기간(termId)별로 나눠 관리합니다. termId가 없는 기존 일정은 '기간 미지정'으로 모입니다.
+const scheduleForTerm = (schedule, termId) => (schedule||[]).filter(r=>!r.termId || r.termId===termId);
 function ScheduleManager({ data, setData, classId }){
   const cls = data.classes[classId];
-  const add = () => setData(prev=>{const d=clone(prev); d.classes[classId].schedule.push({id:uid(),date:todayISO(),day:JHTCore.weekday(todayISO()),content:"",homework:""}); return d;});
+  const terms = data.terms || [];
+  const [view, setView] = useState(data.currentTermId);
+  const viewTerm = terms.some(t=>t.id===view) ? view : (view==="none" ? "none" : data.currentTermId);
+  const known = id => terms.some(t=>t.id===id);
+  const unassigned = cls.schedule.filter(r=>!known(r.termId));
+  const rows = viewTerm==="none" ? unassigned : cls.schedule.filter(r=>r.termId===viewTerm);
+  const [target, setTarget] = useState(data.currentTermId);
+  const add = () => setData(prev=>{const d=clone(prev); d.classes[classId].schedule.push({id:uid(),termId:viewTerm==="none"?data.currentTermId:viewTerm,date:todayISO(),day:JHTCore.weekday(todayISO()),content:"",homework:""}); return d;});
   const upd = (id,field,v) => setData(prev=>{const d=clone(prev); const r=d.classes[classId].schedule.find(x=>x.id===id); r[field]=v; if(field==="date")r.day=JHTCore.weekday(v); return d;});
   const remove = (id) => {if(confirm("이 일정을 삭제할까요?"))setData(prev=>{const d=clone(prev); d.classes[classId].schedule=d.classes[classId].schedule.filter(x=>x.id!==id); return d;});};
+  const assignAll = () => {
+    const label=(terms.find(t=>t.id===target)||{}).label;
+    if(!label || !confirm(`기간 미지정 일정 ${unassigned.length}개를 '${label}'(으)로 지정할까요?`))return;
+    setData(prev=>{const d=clone(prev); d.classes[classId].schedule.forEach(r=>{if(!d.terms.some(t=>t.id===r.termId))r.termId=target;}); return d;});
+  };
+  const tabCls = on => `px-3 py-1.5 rounded-full text-xs font-bold border transition ${on ? "bg-sprout text-white border-sprout" : "bg-white text-muted border-line hover:border-sprout-ring"}`;
   return (
     <div>
-      <button onClick={add} className="mb-4 px-5 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">+ 일정 추가</button>
+      <div className="flex flex-wrap gap-2 mb-3" role="group" aria-label="일정 기간">
+        {terms.map(t=>(
+          <button key={t.id} onClick={()=>setView(t.id)} className={tabCls(viewTerm===t.id)}>
+            {t.label}{t.id===data.currentTermId?" (현재)":""} · {cls.schedule.filter(r=>r.termId===t.id).length}
+          </button>
+        ))}
+        {unassigned.length>0 && <button onClick={()=>setView("none")} className={tabCls(viewTerm==="none")}>기간 미지정 · {unassigned.length}</button>}
+      </div>
+      {viewTerm==="none" ? (
+        <div className="bg-sun-soft rounded-2xl border border-line p-3 mb-4 text-sm">
+          <p className="mb-2">기간이 정해지지 않은 기존 일정입니다. 학부모 화면에서는 모든 기간에 함께 표시됩니다. 각 줄에서 기간을 고르거나 한 번에 지정하세요.</p>
+          <div className="flex gap-2">
+            <select aria-label="일괄 지정 기간" value={target} onChange={e=>setTarget(e.target.value)} className={inputCls}>
+              {terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+            <button onClick={assignAll} className="px-4 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition whitespace-nowrap">모두 지정</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={add} className="mb-4 px-5 py-2.5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition">+ 일정 추가</button>
+      )}
       <div className="space-y-2">
-        {cls.schedule.map(r=>(
+        {rows.map(r=>(
           <div key={r.id} className="bg-white rounded-2xl border border-line p-3 grid grid-cols-2 sm:grid-cols-12 gap-2 items-center">
             <div className="sm:col-span-2">{!/^\d{4}-\d{2}-\d{2}$/.test(r.date)&&<span className="text-xs">기존 날짜: {r.date}</span>}<input aria-label="수업 날짜" type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(r.date)?r.date:""} onChange={e=>upd(r.id,"date",e.target.value)} className={inputCls} /></div>
             <input value={r.day} onChange={e=>upd(r.id,"day",e.target.value)} placeholder="수" className={inputCls+" sm:col-span-1"} />
-            <input value={r.content} onChange={e=>upd(r.id,"content",e.target.value)} placeholder="수업 내용" className={inputCls+" sm:col-span-5"} />
-            <input value={r.homework} onChange={e=>upd(r.id,"homework",e.target.value)} placeholder="과제" className={inputCls+" sm:col-span-3"} />
+            <input value={r.content} onChange={e=>upd(r.id,"content",e.target.value)} placeholder="수업 내용" className={inputCls+" sm:col-span-4"} />
+            <input value={r.homework} onChange={e=>upd(r.id,"homework",e.target.value)} placeholder="과제" className={inputCls+" sm:col-span-2"} />
+            <select aria-label="일정 기간" value={known(r.termId)?r.termId:""} onChange={e=>upd(r.id,"termId",e.target.value)} className={inputCls+" sm:col-span-2"}>
+              {!known(r.termId) && <option value="">기간 미지정</option>}
+              {terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
             <button onClick={()=>remove(r.id)} className="text-xs font-bold text-coral hover:underline sm:col-span-1">삭제</button>
           </div>
         ))}
-        {cls.schedule.length===0 && <p className="text-muted text-sm text-center py-4">일정이 없어요.</p>}
+        {rows.length===0 && <p className="text-muted text-sm text-center py-4">이 기간의 일정이 없어요.</p>}
       </div>
     </div>
   );
@@ -1405,6 +1448,7 @@ function TermManager({ data, setData }){
         if(st.termNotes) delete st.termNotes[id];
         if(st.termMetrics) delete st.termMetrics[id];
       }));
+      Object.values(d.classes).forEach(cls=>(cls.schedule||[]).forEach(r=>{ if(r.termId===id) delete r.termId; }));
       if(d.currentTermId===id) d.currentTermId=d.terms[d.terms.length-1].id;
       return d;
     });
@@ -1650,7 +1694,7 @@ function App(){
       // Keep edits typed while the request was in flight.
       const latest=JHTCore.merge(submitted,current.current,saved);
       base.current=saved;lastRemote.current=saved;current.current=latest;setData(latest);
-      dirty.current=JSON.stringify(latest)!==JSON.stringify(saved);
+      dirty.current=!JHTCore.equal(latest,saved);
       setSaveState(dirty.current?"saving":"saved");
     } catch(e) {
       setSaveState("error");
