@@ -219,6 +219,14 @@ function normalize(d){
     });
     if(!Array.isArray(cls.board)) cls.board = [];
   });
+  // 기간 구분 전 일정은 모두 중간 대비 일정이었으므로 가장 최근 '중간' 기간으로 한 번 옮깁니다.
+  if(!data.scheduleTermsMigrated){
+    const midterm = [...data.terms].reverse().find(t=>(t.label||"").includes("중간"));
+    if(midterm){
+      Object.values(data.classes||{}).forEach(cls=>(cls.schedule||[]).forEach(r=>{ if(!r.termId) r.termId = midterm.id; }));
+      data.scheduleTermsMigrated = true;
+    }
+  }
   return data;
 }
 

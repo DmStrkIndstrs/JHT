@@ -80,9 +80,10 @@ async function run(){
     await page.waitForTimeout(800);
     assert.equal(await page.evaluate(()=>Object.values(__remote.classes)[0].schedule.at(-1).day),'금');
     assert.equal(await page.evaluate(()=>Object.values(__remote.classes)[0].schedule.at(-1).termId),await page.evaluate(()=>__remote.currentTermId));
-    // Schedules are split by period; existing rows without a period stay reachable.
+    // Schedules are split by period; rows from before periods existed move to the latest midterm period.
     assert.equal(await page.getByLabel('수업 날짜').count(),1);
-    await page.getByRole('button',{name:/^기간 미지정/}).click();
+    assert.equal(await page.getByRole('button',{name:/^기간 미지정/}).count(),0);
+    await page.getByRole('button',{name:/중간고사/}).click();
     assert.equal(await page.getByLabel('수업 날짜').count(),2);
     // Server copy comes back with Firestore's key order; delete must still save.
     await page.evaluate(()=>{const sort=v=>Array.isArray(v)?v.map(sort):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,sort(v[k])])):v;window.__remote=sort(window.__remote);});
