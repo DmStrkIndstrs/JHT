@@ -53,6 +53,8 @@
 </script>
 
 <style>
+  /* html2canvas가 글자 기준선을 재는 1px 이미지. Tailwind의 img{display:block} 때문에 글자가 아래로 밀려 그려지는 것을 막습니다. */
+  img[src^="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"]{ display:inline !important; }
   ::placeholder{ color:#64706a; opacity:1; }
   /* 휴대폰에서 누르기 쉬운 최소 터치 크기 */
   .tap{ min-height:44px; }
@@ -584,6 +586,18 @@ function buildReportPage(data, student, htmls, index, count){
   return page;
 }
 
+// html2canvas 공통 설정. 복제된 화면에서는 등장 애니메이션이 처음부터 다시 재생되어 카드가 투명하게 찍히므로 끕니다.
+// 긴 화면은 휴대폰 캔버스 한도(약 1,600만 픽셀)를 넘지 않게 배율을 낮춥니다.
+function snapshot(el, opts){
+  const r = el.getBoundingClientRect();
+  const scale = Math.min(opts.scale||2, Math.sqrt(16e6/Math.max(1, r.width*r.height)));
+  return window.html2canvas(el, { useCORS:true, logging:false, ...opts, scale, onclone:doc=>{
+    const st = doc.createElement("style");
+    st.textContent = "*,*::before,*::after{animation:none!important;transition:none!important;}";
+    doc.head.appendChild(st);
+  }});
+}
+
 async function exportStudentPDF(data, cls, student, terms){
   const has = (terms||[]).some(t=>hasTermRecord(student,t.id));
   if(!has){ alert("내보낼 기록이 없어요."); return; }
@@ -596,7 +610,7 @@ async function exportStudentPDF(data, cls, student, terms){
       const el = buildReportPage(data, student, pages[i], i, pages.length);
       document.body.appendChild(el);
       try {
-        const canvas = await window.html2canvas(el, { backgroundColor:"#ffffff", scale:2, useCORS:true, logging:false });
+        const canvas = await snapshot(el, { backgroundColor:"#ffffff", scale:2 });
         if(i>0) pdf.addPage();
         pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, 210, 297);
       } finally { document.body.removeChild(el); }
@@ -833,7 +847,7 @@ function ParentView({ data, setData, onStudentAction }){
     const el = captureRef.current;
     if(!el || !window.html2canvas) return;
     const bg = getComputedStyle(document.body).backgroundColor || "#ffffff";
-    window.html2canvas(el, { backgroundColor:bg, scale:2.5, useCORS:true, logging:false })
+    snapshot(el, { backgroundColor:bg, scale:2.5 })
       .then(canvas=>{ const a=document.createElement("a"); a.download=`${student.name}_포트폴리오_${todayISO()}.png`; a.href=canvas.toDataURL("image/png"); a.click(); })
       .catch(()=> alert("이미지 저장에 실패했어요. 다시 시도해 주세요."));
   };
