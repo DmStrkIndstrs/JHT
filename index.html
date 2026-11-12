@@ -464,7 +464,7 @@ function buildReportText(data, cls, student, terms){
       L.push("[개별 기록]");
       fbs.forEach(f=>{
         L.push(`- ${fmtKDate(f.date)} (${f.category} · ${ratingLabelOf(data,f.rating)})`);
-        L.push(`  ${f.content}`);
+        L.push(`  ${String(f.content).replace(/\n/g,"\n  ")}`);
       });
       L.push("");
     }
@@ -735,7 +735,7 @@ function GrowthTimeline({ feedbacks, ratings }){
                   <Chip tone={catTone(f.category)}>{f.category}</Chip>
                   <Chip tone={ratingTone(f.rating)}>{rt.emoji} {rt.label}</Chip>
                 </div>
-                <p className="text-ink leading-relaxed text-[15px]">{f.content}</p>
+                <p className="text-ink leading-relaxed text-[15px] whitespace-pre-line">{f.content}</p>
               </div>
             </div>
           );
@@ -1198,7 +1198,7 @@ function FeedbackManager({ data, setData, classId }){
                         <Chip tone={catTone(f.category)}>{f.category}</Chip>
                         <Chip tone={ratingTone(f.rating)}>{rt.emoji} {rt.label}</Chip>
                       </div>
-                      <p className="text-ink text-sm leading-relaxed">{f.content}</p>
+                      <p className="text-ink text-sm leading-relaxed whitespace-pre-line">{f.content}</p>
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">
                       <button onClick={()=>startEdit(f)} className="text-xs font-bold text-sprout-deep hover:underline">수정</button>
