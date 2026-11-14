@@ -836,9 +836,10 @@ function ParentView({ data, setData, onStudentAction }){
     );
   }
 
-  const terms = data.terms || [];
+  const terms = JHTCore.classTerms(data, match.classId);
   const orderedDesc = [...terms].reverse();                 // 최신 먼저
-  const activeTermId = termView==="all" ? null : (termView==="current" ? data.currentTermId : termView);
+  const currentTermId = JHTCore.classCurrentTermId(data, match.classId);
+  const activeTermId = termView==="all" ? null : (termView==="current" ? currentTermId : termView);
   const shownTerms = termView==="all" ? orderedDesc : terms.filter(t=>t.id===activeTermId);
 
   const tabCls = (on) => `tap px-4 py-2 rounded-full text-sm font-bold border transition ${on ? "bg-sprout text-white border-sprout shadow-card" : "bg-white text-muted border-line hover:border-sprout-ring"}`;
@@ -1057,8 +1058,9 @@ function BulkNotes({ data, setData, classId, termId }){
 
 function FeedbackManager({ data, setData, classId }){
   const cls = data.classes[classId];
+  const classTermList = JHTCore.classTerms(data, classId);
   const [studentId, setStudentId] = useState(cls.students[0]?.id || "");
-  const [termId, setTermId] = useState(data.currentTermId || (data.terms[0] && data.terms[0].id));
+  const [termId, setTermId] = useState(JHTCore.classCurrentTermId(data, classId));
   const [bulk, setBulk] = useState(false);
   const blank = { date:todayISO(), category:data.categories[0], rating:"good", content:"" };
   const [form, setForm] = useState(blank);
@@ -1107,7 +1109,7 @@ function FeedbackManager({ data, setData, classId }){
       <div className="mb-3">
         <label className="text-xs text-muted font-bold block mb-1">기간</label>
         <select value={termId} onChange={e=>{ if(leave()){ setTermId(e.target.value); resetForm(); } }} className={inputCls}>
-          {data.terms.map(t=><option key={t.id} value={t.id}>{t.label}{t.id===data.currentTermId?" (현재)":""}</option>)}
+          {classTermList.map(t=><option key={t.id} value={t.id}>{t.label}{t.id===data.currentTermId?" (현재)":""}</option>)}
         </select>
       </div>
 
@@ -1141,8 +1143,8 @@ function FeedbackManager({ data, setData, classId }){
             {/* 포트폴리오 내보내기 */}
             <div className="bg-white rounded-2xl border border-line p-3 mb-5 flex flex-wrap items-center gap-2">
               <span className="text-sm font-bold text-ink mr-1">{student.name} 전체 포트폴리오</span>
-              <button onClick={()=>exportStudentPDF(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-sprout text-white hover:bg-sprout-deep transition">PDF</button>
-              <button onClick={()=>exportStudentText(data, cls, student, data.terms)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">텍스트</button>
+              <button onClick={()=>exportStudentPDF(data, cls, student, classTermList)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-sprout text-white hover:bg-sprout-deep transition">PDF</button>
+              <button onClick={()=>exportStudentText(data, cls, student, classTermList)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">텍스트</button>
               <button onClick={()=>gotoStudent(studentIdx-1)} disabled={studentIdx<=0} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-line disabled:opacity-40 ml-auto">← 이전 학생</button>
               <button onClick={()=>gotoStudent(studentIdx+1)} disabled={studentIdx>=cls.students.length-1} className="text-xs font-bold px-3 py-1.5 rounded-lg border border-line disabled:opacity-40">다음 학생 →</button>
             </div>
@@ -1221,7 +1223,8 @@ function StudentManager({ data, setData, classId, onStudentAction }){
   const cls = data.classes[classId];
   const [name, setName] = useState("");
   const [query,setQuery]=useState("");
-  const [metricTerm,setMetricTerm]=useState(data.currentTermId);
+  const classTermList = JHTCore.classTerms(data, classId);
+  const [metricTerm,setMetricTerm]=useState(JHTCore.classCurrentTermId(data, classId));
 
   const add = () => {
     if(!name.trim()) return;
@@ -1274,7 +1277,7 @@ function StudentManager({ data, setData, classId, onStudentAction }){
       </div>
 
       <input aria-label="학생 검색" value={query} onChange={e=>setQuery(e.target.value)} placeholder="학생 이름·코드 검색" className={inputCls+" mb-3"} />
-      <label className="text-sm">출석·과제 기록 기간<select aria-label="수치 기록 기간" value={metricTerm} onChange={e=>setMetricTerm(e.target.value)} className={inputCls}>{data.terms.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select></label>
+      <label className="text-sm">출석·과제 기록 기간<select aria-label="수치 기록 기간" value={metricTerm} onChange={e=>setMetricTerm(e.target.value)} className={inputCls}>{classTermList.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</select></label>
       <p className="text-xs text-muted mb-3">💡 학부모는 이 코드로만 본인 자녀를 조회할 수 있어요. 다른 학생의 이름·기록은 화면에 보이지 않습니다. 코드가 없는 학생은 조회가 불가능하니 꼭 지정해 주세요.</p>
       <button onClick={downloadCodeSheet} className="mb-3 text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-line text-sprout-deep hover:border-sprout-ring transition">📋 반 전체 열람 코드표 다운로드</button>
 
@@ -1347,20 +1350,21 @@ function NoticeManager({ data, setData, classId }){
 const scheduleForTerm = (schedule, termId) => (schedule||[]).filter(r=>!r.termId || r.termId===termId);
 function ScheduleManager({ data, setData, classId }){
   const cls = data.classes[classId];
-  const terms = data.terms || [];
-  const [view, setView] = useState(data.currentTermId);
-  const viewTerm = terms.some(t=>t.id===view) ? view : (view==="none" ? "none" : data.currentTermId);
+  const terms = JHTCore.classTerms(data, classId);
+  const classCurrent = JHTCore.classCurrentTermId(data, classId);
+  const [view, setView] = useState(classCurrent);
+  const viewTerm = terms.some(t=>t.id===view) ? view : (view==="none" ? "none" : classCurrent);
   const known = id => terms.some(t=>t.id===id);
   const unassigned = cls.schedule.filter(r=>!known(r.termId));
   const rows = viewTerm==="none" ? unassigned : cls.schedule.filter(r=>r.termId===viewTerm);
-  const [target, setTarget] = useState(data.currentTermId);
-  const add = () => setData(prev=>{const d=clone(prev); d.classes[classId].schedule.push({id:uid(),termId:viewTerm==="none"?data.currentTermId:viewTerm,date:todayISO(),day:JHTCore.weekday(todayISO()),content:"",homework:""}); return d;});
+  const [target, setTarget] = useState(classCurrent);
+  const add = () => setData(prev=>{const d=clone(prev); d.classes[classId].schedule.push({id:uid(),termId:viewTerm==="none"?classCurrent:viewTerm,date:todayISO(),day:JHTCore.weekday(todayISO()),content:"",homework:""}); return d;});
   const upd = (id,field,v) => setData(prev=>{const d=clone(prev); const r=d.classes[classId].schedule.find(x=>x.id===id); r[field]=v; if(field==="date")r.day=JHTCore.weekday(v); return d;});
   const remove = (id) => {if(confirm("이 일정을 삭제할까요?"))setData(prev=>{const d=clone(prev); d.classes[classId].schedule=d.classes[classId].schedule.filter(x=>x.id!==id); return d;});};
   const assignAll = () => {
     const label=(terms.find(t=>t.id===target)||{}).label;
     if(!label || !confirm(`기간 미지정 일정 ${unassigned.length}개를 '${label}'(으)로 지정할까요?`))return;
-    setData(prev=>{const d=clone(prev); d.classes[classId].schedule.forEach(r=>{if(!d.terms.some(t=>t.id===r.termId))r.termId=target;}); return d;});
+    setData(prev=>{const d=clone(prev); const ok=JHTCore.classTerms(d,classId); d.classes[classId].schedule.forEach(r=>{if(!ok.some(t=>t.id===r.termId))r.termId=target;}); return d;});
   };
   const tabCls = on => `tap px-4 py-2 rounded-full text-sm font-bold border transition ${on ? "bg-sprout text-white border-sprout" : "bg-white text-muted border-line hover:border-sprout-ring"}`;
   return (
@@ -1369,7 +1373,7 @@ function ScheduleManager({ data, setData, classId }){
         <span className="text-xs font-bold text-muted mr-1">기간</span>
         {terms.map(t=>(
           <button key={t.id} onClick={()=>setView(t.id)} className={tabCls(viewTerm===t.id)}>
-            {t.label}{t.id===data.currentTermId?" (현재)":""} · {cls.schedule.filter(r=>r.termId===t.id).length}
+            {t.label}{t.id===classCurrent?" (현재)":""} · {cls.schedule.filter(r=>r.termId===t.id).length}
           </button>
         ))}
         {unassigned.length>0 && <button onClick={()=>setView("none")} className={tabCls(viewTerm==="none")}>기간 미지정 · {unassigned.length}</button>}
@@ -1515,6 +1519,16 @@ function TermManager({ data, setData }){
   const add = () => { if(!label.trim())return; setData(prev=>{ const d=clone(prev); if(!d.terms)d.terms=[]; d.terms.push({id:uid(), label:label.trim()}); d.currentTermId=d.terms[d.terms.length-1].id; return d; }); setLabel(""); };
   const rename = (id,v) => setData(prev=>{ const d=clone(prev); const t=d.terms.find(x=>x.id===id); if(t)t.label=v; return d; });
   const setCurrent = (id) => setData(prev=>{ const d=clone(prev); d.currentTermId=id; return d; });
+  // No classIds (or an empty list) means the term shows in every class.
+  const toggleClass = (termId, cid) => setData(prev=>{
+    const d=clone(prev);
+    const t=d.terms.find(x=>x.id===termId); if(!t) return prev;
+    const ids = Array.isArray(t.classIds) ? t.classIds.slice() : [];
+    const i = ids.indexOf(cid);
+    if(i>=0) ids.splice(i,1); else ids.push(cid);
+    if(ids.length) t.classIds=ids; else delete t.classIds;
+    return d;
+  });
   const move = (id,dir) => setData(prev=>{ const d=clone(prev); const i=d.terms.findIndex(x=>x.id===id); const j=i+dir; if(j<0||j>=d.terms.length)return d; const tmp=d.terms[i]; d.terms[i]=d.terms[j]; d.terms[j]=tmp; return d; });
   const remove = (id) => {
     if(data.terms.length<=1){ alert("최소 1개의 기간은 있어야 해요."); return; }
@@ -1539,16 +1553,32 @@ function TermManager({ data, setData }){
         <button onClick={add} className="px-5 rounded-xl bg-sprout text-white font-bold hover:bg-sprout-deep transition whitespace-nowrap">추가</button>
       </div>
       <p className="text-xs text-muted mb-3">'현재'로 지정한 기간에 새 기록이 기본 저장되고, 학부모 화면에서도 그 기간이 먼저 열려요. ▲▼로 순서를 바꿀 수 있어요.</p>
+      <p className="text-xs text-muted mb-3">각 기간을 쓰는 반을 골라주세요. 아무 반도 고르지 않으면 모든 반에 표시됩니다.</p>
       <div className="space-y-2">
         {(data.terms||[]).map((t)=>(
-          <div key={t.id} className="bg-white rounded-2xl border border-line p-3 flex items-center gap-2">
-            <input value={t.label} onChange={e=>rename(t.id,e.target.value)} className="flex-1 bg-transparent font-bold text-ink text-sm min-w-0" />
-            {data.currentTermId===t.id
-              ? <Chip tone="sprout">현재</Chip>
-              : <button onClick={()=>setCurrent(t.id)} className="text-xs font-bold text-sprout-deep hover:underline shrink-0">현재로</button>}
-            <button onClick={()=>move(t.id,-1)} className="text-sm text-muted hover:text-ink shrink-0 px-1">▲</button>
-            <button onClick={()=>move(t.id,1)} className="text-sm text-muted hover:text-ink shrink-0 px-1">▼</button>
-            <button onClick={()=>remove(t.id)} className={dangerBtn}>삭제</button>
+          <div key={t.id} className="bg-white rounded-2xl border border-line p-3">
+            <div className="flex items-center gap-2">
+              <input value={t.label} onChange={e=>rename(t.id,e.target.value)} className="flex-1 bg-transparent font-bold text-ink text-sm min-w-0" />
+              {data.currentTermId===t.id
+                ? <Chip tone="sprout">현재</Chip>
+                : <button onClick={()=>setCurrent(t.id)} className="text-xs font-bold text-sprout-deep hover:underline shrink-0">현재로</button>}
+              <button onClick={()=>move(t.id,-1)} className="text-sm text-muted hover:text-ink shrink-0 px-1">▲</button>
+              <button onClick={()=>move(t.id,1)} className="text-sm text-muted hover:text-ink shrink-0 px-1">▼</button>
+              <button onClick={()=>remove(t.id)} className={dangerBtn}>삭제</button>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-line">
+              <span className="text-xs font-bold text-muted mr-0.5">사용 반</span>
+              {Object.entries(data.classes||{}).map(([cid,c])=>{
+                const on = Array.isArray(t.classIds) && t.classIds.includes(cid);
+                return (
+                  <button key={cid} onClick={()=>toggleClass(t.id,cid)} aria-pressed={on}
+                    className={`tap px-2.5 py-1.5 rounded-lg text-xs font-bold border transition ${on ? "bg-sprout text-white border-sprout" : "bg-white text-muted border-line hover:border-sprout-ring"}`}>
+                    {c.name}
+                  </button>
+                );
+              })}
+              {!(Array.isArray(t.classIds) && t.classIds.length) && <span className="text-xs text-muted">· 전체 반에 표시 중</span>}
+            </div>
           </div>
         ))}
       </div>
@@ -1560,9 +1590,10 @@ function TermManager({ data, setData }){
 /* ── 기록 누락 학생 현황판 (관리자 홈 배너) ── */
 function MissingRecordsPanel({ data, classId }){
   const cls = data.classes[classId];
-  const term = data.terms.find(t=>t.id===data.currentTermId);
   if(!cls) return null;
-  const missing = cls.students.filter(s=>!hasTermRecord(s,data.currentTermId));
+  const termId = JHTCore.classCurrentTermId(data, classId);
+  const term = (data.terms||[]).find(t=>t.id===termId);
+  const missing = cls.students.filter(s=>!hasTermRecord(s,termId));
   if(!missing.length) return null;
   return (
     <div className="bg-sun-soft border border-sun rounded-2xl p-3 mb-4 text-sm no-print">

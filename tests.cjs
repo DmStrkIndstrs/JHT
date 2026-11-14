@@ -22,6 +22,13 @@ async function run(){
   assert.deepEqual(core.merge(ordered,noRow,sorted(ordered)).classes.a.schedule,[]);
   const noClass=structuredClone(ordered);delete noClass.classes.b;
   assert.deepEqual(Object.keys(core.merge(ordered,noClass,sorted(ordered)).classes),['a']);
+  // Periods are scoped per class; a period with no classIds stays shared.
+  const scoped={terms:[{id:'t1',label:'중간',classIds:['c1']},{id:'t2',label:'선행',classIds:['c2']},{id:'t3',label:'공통'}],currentTermId:'t2'};
+  assert.deepEqual(core.classTerms(scoped,'c1').map(t=>t.id),['t1','t3']);
+  assert.deepEqual(core.classTerms(scoped,'c2').map(t=>t.id),['t2','t3']);
+  assert.equal(core.classCurrentTermId(scoped,'c1'),'t3');   // global current belongs to the other class
+  assert.equal(core.classCurrentTermId(scoped,'c2'),'t2');
+  assert.deepEqual(core.classTerms({terms:[{id:'x',label:'old'}]},'any').map(t=>t.id),['x']);
   const students=[{id:'a',name:'동명',code:'1111'},{id:'b',name:'동명',code:'2222'}];
   assert.equal(core.pastePlan('동명\t내용',students).errors.length,1);
   assert.equal(core.pastePlan('1111\t쉼표, 유지',students).rows[0].content,'쉼표, 유지');

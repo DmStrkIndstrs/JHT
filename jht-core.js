@@ -113,7 +113,19 @@
     return data;
   }
 
-  const api={equal,merge,localDate,weekday,pastePlan,validate,checkCodes,studentOperation};
+  // A term with no classIds (or an empty list) belongs to every class, so terms
+  // created before per-class scoping keep showing up exactly as they did.
+  function classTerms(data, classId) {
+    const terms = (data && data.terms) || [];
+    return terms.filter(t => !Array.isArray(t.classIds) || !t.classIds.length || t.classIds.includes(classId));
+  }
+  function classCurrentTermId(data, classId) {
+    const list = classTerms(data, classId);
+    if(!list.length) return data && data.currentTermId;
+    return list.some(t => t.id === (data && data.currentTermId)) ? data.currentTermId : list[list.length-1].id;
+  }
+
+  const api={equal,merge,localDate,weekday,pastePlan,validate,checkCodes,studentOperation,classTerms,classCurrentTermId};
   if(typeof module!=='undefined') module.exports=api;
   root.JHTCore=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
